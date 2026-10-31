@@ -1,0 +1,332 @@
+Option Strict On
+Option Explicit On
+
+Imports System
+Imports System.Collections.Generic
+Imports System.IO
+Imports System.Linq
+Imports System.Security.Cryptography
+Imports System.Text
+Imports System.Text.Json
+Imports System.Globalization
+
+Public Class DialogueEntry
+    Public Property Key As String = ""
+    Public Property FileName As String = ""
+    Public Property BankOffset As Integer
+    Public Property GroupIndex As Integer
+    Public Property MessageIndex As Integer
+    Public Property PointerOffset As Long
+    Public Property TextOffset As Long
+    Public Property Japanese As String = ""
+    Public Property English As String = ""
+    Public Property EncodedHex As String = ""
+    Public Property ReplacementHex As String = ""
+    Public Property OriginalSha As String = ""
+    Public Property Provenance As String = "Native pointer scan"
+    Public ReadOnly Property OffsetText As String
+        Get
+            Return TextOffset.ToString("X8", CultureInfo.InvariantCulture)
+        End Get
+    End Property
+    Public ReadOnly Property StatusText As String
+        Get
+            Return If(Not String.IsNullOrWhiteSpace(ReplacementHex), "PATCH READY", If(Not String.IsNullOrWhiteSpace(English), "DRAFT", "UNTRANSLATED"))
+        End Get
+    End Property
+End Class
+
+Public NotInheritable Class DialogueEncoding
+    Private Sub New()
+    End Sub
+    Public Shared Function NormalizeHex(value As String) As String
+        Return New String(If(value, "").Where(Function(c) Not Char.IsWhiteSpace(c) AndAlso c <> "-"c).ToArray()).ToUpperInvariant()
+    End Function
+    Public Shared Function HexToBytes(value As String) As Byte()
+        Dim h = NormalizeHex(value)
+        If h.Length Mod 2 <> 0 Then Throw New InvalidDataException("Hex characters must form complete bytes.")
+        If h.Length = 0 Then Return Array.Empty(Of Byte)()
+        Return Convert.FromHexString(h)
+    End Function
+    Public Shared Function ToHex(bytes As Byte()) As String
+        Return Convert.ToHexString(bytes)
+    End Function
+    Public Shared Sub ValidatePatch(original As Byte(), encoded As Byte(), sourceKey As String)
+        If original.Length < 2 OrElse original(0) <> &HDF OrElse original(original.Length - 1) <> &HF Then
+            Throw New InvalidDataException("Unknown source message format (expected DF...0F): " & sourceKey)
+        End If
+        If encoded.Length < 2 OrElse encoded.Length > original.Length Then
+            Throw New InvalidDataException($"Message does not fit original allocation ({encoded.Length} > {original.Length}): {sourceKey}")
+        End If
+        If encoded(0) <> &HDF OrElse encoded(encoded.Length - 1) <> &HF Then
+            Throw New InvalidDataException("Translation must begin with DF and finish with 0F: " & sourceKey)
+        End If
+    End Sub
+    Public Shared Function LoadGlyphMap(path As String) As Dictionary(Of Char, Byte())
+        Dim map As New Dictionary(Of Char, Byte())
+        Dim lines = CsvStore.Parse(File.ReadAllText(path, Encoding.UTF8))
+        For Each row In lines.Skip(1)
+            If row.Length < 2 OrElse row(0).Length <> 1 Then Continue For
+            Dim bytes = HexToBytes(row(1))
+            If bytes.Length > 0 Then map(row(0)(0)) = bytes
+        Next
+        Return map
+    End Function
+    Public Shared Function EncodeEnglish(s As String, glyphs As Dictionary(Of Char, Byte())) As Byte()
+        If glyphs Is Nothing OrElse glyphs.Count = 0 Then Throw New InvalidOperationException("Load a verified Saturn English glyph mapping before encoding.")
+        Dim output As New List(Of Byte) From {&HDF}
+        Dim i = 0
+        While i < s.Length
+            Dim ch = s(i)
+            If ch = "["c Then
+                Dim endAt = s.IndexOf("]"c, i + 1)
+                If endAt <= i Then Throw New InvalidDataException("Missing ] in raw control token.")
+                Dim text = s.Substring(i + 1, endAt - i - 1)
+                Dim tokens = text.Split({" "c, ControlChars.Tab, "-"c}, StringSplitOptions.RemoveEmptyEntries)
+                If tokens.Length = 0 Then Throw New InvalidDataException("Empty control token.")
+                For Each t In tokens
+                    If t.Length <> 2 Then Throw New InvalidDataException("Use [HH] or [HH HH] for original Saturn controls.")
+                    output.Add(Byte.Parse(t, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture))
+                Next
+                i = endAt + 1
+                Continue While
+            End If
+            If ch = ControlChars.Cr Then
+                i += 1
+                Continue While
+            End If
+            If ch = ControlChars.Lf Then
+                If output.Count > 0 AndAlso output(output.Count - 1) <> &HE AndAlso output(output.Count - 1) <> &HD Then output.Add(&HE)
+                i += 1
+                Continue While
+            End If
+            Dim encoded As Byte() = Nothing
+            If Not glyphs.TryGetValue(ch, encoded) Then Throw New InvalidDataException("Unmapped character: " & ch & " (U+" & AscW(ch).ToString("X4") & ").")
+            output.AddRange(encoded)
+            i += 1
+        End While
+        output.Add(&HF)
+        Return output.ToArray()
+    End Function
+End Class
+
+Public NotInheritable Class NativeDialogueScanner
+    Private Sub New()
+    End Sub
+    Private Shared Function RelPtr(data As Byte(), at As Integer) As Integer
+        If at < 0 OrElse at + 3 >= data.Length OrElse data(at) <> 0 OrElse data(at + 1) < &H20 OrElse data(at + 1) > &H2F Then Return -1
+        Return (CInt(data(at + 1) - &H20) << 16) Or (CInt(data(at + 2)) << 8) Or CInt(data(at + 3))
+    End Function
+    Private Shared Function MessageEnd(data As Byte(), target As Integer) As Integer
+        If target < 0 OrElse target >= data.Length OrElse data(target) <> &HDF Then Return -1
+        Dim limit = Math.Min(data.Length - 1, target + 2047)
+        For i = target + 1 To limit
+            If data(i) = &HF Then Return i
+        Next
+        Return -1
+    End Function
+    Private Shared Function Hit(data As Byte(), pointerAt As Integer, bankBase As Integer) As Integer
+        Dim relative = RelPtr(data, pointerAt)
+        If relative < 0 Then Return -1
+        Dim target = CLng(bankBase) + CLng(relative)
+        If target < 0 OrElse target >= data.Length Then Return -1
+        If MessageEnd(data, CInt(target)) < 0 Then Return -1
+        Return CInt(target)
+    End Function
+    Private Shared Function RunLength(data As Byte(), at As Integer, bank As Integer) As Integer
+        Dim count = 0
+        While at + count * 4L + 4L <= data.Length AndAlso count < 4096
+            If Hit(data, at + count * 4, bank) < 0 Then Exit While
+            count += 1
+        End While
+        Return count
+    End Function
+
+    Public Shared Function ScanBytes(name As String, data As Byte()) As List(Of DialogueEntry)
+        Dim result As New List(Of DialogueEntry)
+        If data Is Nothing OrElse data.Length < 256 Then Return result
+        Dim byModulo(2047) As List(Of Integer)
+        For j = 0 To 2047
+            byModulo(j) = New List(Of Integer)()
+        Next
+        For i = 0 To data.Length - 3
+            If data(i) = &HDF AndAlso MessageEnd(data, i) >= 0 Then byModulo(i And 2047).Add(i)
+        Next
+        Dim groupsByBank As New Dictionary(Of Integer, Integer)
+        Dim pos = 0
+        While pos + 16 <= data.Length
+            If pos Mod 4 <> 0 Then
+                pos += 1
+                Continue While
+            End If
+            Dim rel = RelPtr(data, pos)
+            If rel < 0 Then
+                pos += 4
+                Continue While
+            End If
+            Dim bestBank = -1
+            Dim bestLen = 0
+            For Each target In byModulo(rel And 2047)
+                Dim bank = target - rel
+                If bank < 0 OrElse bank > pos OrElse (bank Mod 2048) <> 0 Then Continue For
+                Dim count = RunLength(data, pos, bank)
+                If count > bestLen Then
+                    bestLen = count
+                    bestBank = bank
+                End If
+                If bestLen >= 200 Then Exit For
+            Next
+            If bestLen < 3 Then
+                pos += 4
+                Continue While
+            End If
+            Dim groupIndex = If(groupsByBank.ContainsKey(bestBank), groupsByBank(bestBank), 0)
+            groupsByBank(bestBank) = groupIndex + 1
+            For msg As Integer = 0 To bestLen - 1
+                Dim ptr = pos + msg * 4
+                Dim textStart = Hit(data, ptr, bestBank)
+                Dim last = MessageEnd(data, textStart)
+                Dim message(last - textStart) As Byte
+                Buffer.BlockCopy(data, textStart, message, 0, message.Length)
+                result.Add(New DialogueEntry With {
+                    .FileName = name, .BankOffset = bestBank,
+                    .GroupIndex = groupIndex, .MessageIndex = msg,
+                    .PointerOffset = ptr, .TextOffset = textStart,
+                    .Key = $"{name}:{bestBank:X8}:{groupIndex:X2}:{msg:X2}",
+                    .EncodedHex = Convert.ToHexString(message)})
+            Next
+            pos += bestLen * 4
+        End While
+        Return result
+    End Function
+End Class
+
+Public NotInheritable Class LegacyIndex
+    Private Sub New()
+    End Sub
+    Public Shared Function ApplyFromFile(indexPath As String, entries As IList(Of DialogueEntry)) As Integer
+        Dim indexed As New Dictionary(Of String, DialogueEntry)(StringComparer.OrdinalIgnoreCase)
+        For Each ent In entries
+            indexed(ent.FileName & "|" & ent.PointerOffset.ToString() & "|" & ent.TextOffset.ToString()) = ent
+        Next
+        Dim attached = 0
+        Using doc = JsonDocument.Parse(File.ReadAllText(indexPath, Encoding.UTF8))
+            Dim records = doc.RootElement.GetProperty("records")
+            For Each item In records.EnumerateArray()
+                Dim fn = GetString(item, "file")
+                Dim txt = GetLong(item, "text_offset")
+                Dim ptr = GetLong(item, "pointer_offset")
+                Dim label = fn & "|" & ptr.ToString() & "|" & txt.ToString()
+                Dim target As DialogueEntry = Nothing
+                If Not indexed.TryGetValue(label, target) Then Continue For
+                Dim sourceHex = DialogueEncoding.NormalizeHex(GetString(item, "encoded_hex"))
+                If Not sourceHex.Equals(DialogueEncoding.NormalizeHex(target.EncodedHex), StringComparison.Ordinal) Then Continue For
+                target.Japanese = GetString(item, "source_text")
+                target.English = GetString(item, "english_text")
+                target.OriginalSha = GetString(item, "source_sha256")
+                target.Provenance = "Verified native pointer + imported catalogue"
+                attached += 1
+            Next
+        End Using
+        Return attached
+    End Function
+    Private Shared Function GetString(o As JsonElement, key As String) As String
+        Dim p As JsonElement
+        If o.TryGetProperty(key, p) AndAlso p.ValueKind = JsonValueKind.String Then Return If(p.GetString(), "")
+        Return ""
+    End Function
+    Private Shared Function GetLong(o As JsonElement, key As String) As Long
+        Dim p As JsonElement
+        If o.TryGetProperty(key, p) AndAlso p.ValueKind = JsonValueKind.Number Then Return p.GetInt64()
+        Return -1
+    End Function
+End Class
+
+Public NotInheritable Class CsvStore
+    Private Sub New()
+    End Sub
+    Public Shared Function Quote(s As String) As String
+        Return """" & If(s, "").Replace("""", """""") & """"
+    End Function
+    Public Shared Sub Save(path As String, entries As IEnumerable(Of DialogueEntry))
+        If File.Exists(path) Then
+            Dim backup = path & ".backup_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture)
+            File.Copy(path, backup, False)
+        End If
+        Using w As New StreamWriter(path, False, New UTF8Encoding(True))
+            w.WriteLine("Key,File,PointerOffset,TextOffset,EncodedHex,Japanese,English,ReplacementHex,OriginalSha")
+            For Each e In entries
+                Dim fields = New String() {e.Key, e.FileName, e.PointerOffset.ToString(CultureInfo.InvariantCulture), e.TextOffset.ToString(CultureInfo.InvariantCulture), e.EncodedHex, e.Japanese, e.English, e.ReplacementHex, e.OriginalSha}
+                w.WriteLine(String.Join(",", fields.Select(Function(s) Quote(s))))
+            Next
+        End Using
+    End Sub
+    Public Shared Function ImportInto(path As String, entries As IList(Of DialogueEntry)) As Integer
+        Dim byLocation As New Dictionary(Of String, List(Of DialogueEntry))(StringComparer.OrdinalIgnoreCase)
+        For Each e In entries
+            Dim key = e.FileName & "|" & e.TextOffset.ToString(CultureInfo.InvariantCulture)
+            If Not byLocation.ContainsKey(key) Then byLocation(key) = New List(Of DialogueEntry)
+            byLocation(key).Add(e)
+        Next
+        Dim table = Parse(File.ReadAllText(path, Encoding.UTF8))
+        If table.Count = 0 Then Return 0
+        Dim heads = table(0).Select(Function(s) s.TrimStart(ChrW(&HFEFF))).ToArray()
+        Dim readField As Func(Of String(), String, String) = Function(row, col)
+                                                               Dim n = Array.FindIndex(heads, Function(h) h.Equals(col, StringComparison.OrdinalIgnoreCase))
+                                                               Return If(n < 0 OrElse n >= row.Length, "", row(n))
+                                                           End Function
+        Dim count = 0
+        For Each row In table.Skip(1)
+            Dim name = readField(row, "File")
+            Dim off As Long
+            If Not Long.TryParse(readField(row, "TextOffset"), NumberStyles.Integer, CultureInfo.InvariantCulture, off) Then Continue For
+            Dim match As List(Of DialogueEntry) = Nothing
+            If Not byLocation.TryGetValue(name & "|" & off.ToString(CultureInfo.InvariantCulture), match) Then Continue For
+            Dim expectedHex = DialogueEncoding.NormalizeHex(readField(row, "EncodedHex"))
+            If expectedHex.Length = 0 Then Continue For
+            For Each e In match
+                If Not DialogueEncoding.NormalizeHex(e.EncodedHex).Equals(expectedHex, StringComparison.Ordinal) Then Continue For
+                e.English = readField(row, "English")
+                e.ReplacementHex = readField(row, "ReplacementHex")
+                Dim jp = readField(row, "Japanese")
+                If jp.Length > 0 Then e.Japanese = jp
+                count += 1
+            Next
+        Next
+        Return count
+    End Function
+    Public Shared Function Parse(s As String) As List(Of String())
+        Dim result As New List(Of String())
+        Dim cells As New List(Of String)
+        Dim sb As New StringBuilder()
+        Dim quoted As Boolean = False
+        Dim i = 0
+        While i < s.Length
+            Dim c = s(i)
+            If c = """"c Then
+                If quoted AndAlso i + 1 < s.Length AndAlso s(i + 1) = """"c Then
+                    sb.Append(""""c)
+                    i += 1
+                Else
+                    quoted = Not quoted
+                End If
+            ElseIf c = ","c AndAlso Not quoted Then
+                cells.Add(sb.ToString())
+                sb.Clear()
+            ElseIf (c = ControlChars.Cr OrElse c = ControlChars.Lf) AndAlso Not quoted Then
+                If c = ControlChars.Cr AndAlso i + 1 < s.Length AndAlso s(i + 1) = ControlChars.Lf Then i += 1
+                cells.Add(sb.ToString())
+                sb.Clear()
+                If cells.Any(Function(x) x.Length > 0) Then result.Add(cells.ToArray())
+                cells.Clear()
+            Else
+                sb.Append(c)
+            End If
+            i += 1
+        End While
+        If quoted Then Throw New InvalidDataException("Unclosed CSV field.")
+        cells.Add(sb.ToString())
+        If cells.Any(Function(x) x.Length > 0) Then result.Add(cells.ToArray())
+        Return result
+    End Function
+End Class
