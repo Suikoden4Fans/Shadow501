@@ -311,9 +311,14 @@ Public NotInheritable Class LegacyIndex
                 If Not indexed.TryGetValue(label, target) Then Continue For
                 Dim sourceHex = DialogueEncoding.NormalizeHex(GetString(item, "encoded_hex"))
                 If Not sourceHex.Equals(DialogueEncoding.NormalizeHex(target.EncodedHex), StringComparison.Ordinal) Then Continue For
-                target.Japanese = GetString(item, "source_text")
-                target.English = GetString(item, "english_text")
-                target.OriginalSha = GetString(item, "source_sha256")
+                Dim newJapanese = GetString(item, "source_text")
+                Dim newEnglish = GetString(item, "english_text")
+                If target.Japanese.Length = 0 Then target.Japanese = newJapanese
+                If target.English.Length = 0 AndAlso newEnglish.Length > 0 Then
+                    target.English = newEnglish
+                    target.TranslationSource = "Previous verified dialogue draft"
+                End If
+                If target.OriginalSha.Length = 0 Then target.OriginalSha = GetString(item, "source_sha256")
                 target.Provenance = "Verified native pointer + imported catalogue"
                 attached += 1
             Next
