@@ -323,25 +323,76 @@ Public Class MainForm
 
     Private Shared Function ScanResources(source As String, folder As Boolean, progress As IProgress(Of String)) As ScanOutcome
         Dim result As New ScanOutcome()
+        Dim officialNames As String() = {
+            "MURA_A1.BIN", "MURA_B1.BIN", "MURA_C1.BIN", "MURA_D1.BIN",
+            "MURA_E1.BIN", "MURA_F1.BIN", "MURA_G1.BIN", "MURA_H1.BIN",
+            "MURA_I1.BIN", "MURA_N1.BIN", "MURA_S1.BIN", "MURA_Z1.BIN"}
+        Dim handled As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Dim verifiedBeta As Boolean = True
+
         If folder Then
-            Dim files = Directory.GetFiles(source, "MURA_*.BIN", SearchOption.TopDirectoryOnly).OrderBy(Function(x) x).ToArray()
-            result.FileCount = files.Length
-            For Each filePath In files
-                progress.Report("Scanning extracted " & Path.GetFileName(filePath) & " ...")
-                result.Entries.AddRange(NativeDialogueScanner.ScanBytes(Path.GetFileName(filePath), File.ReadAllBytes(filePath)))
+            Dim filePaths = Directory.GetFiles(source, "MURA_*.BIN", SearchOption.TopDirectoryOnly).OrderBy(Function(x) x).ToArray()
+            result.FileCount = filePaths.Length
+            For Each officialName In officialNames
+                Dim resourcePath = Path.Combine(source, officialName)
+                If Not File.Exists(resourcePath) Then
+                    verifiedBeta = False
+                    Continue For
+                End If
+                progress.Report("Validating and scanning native text: " & officialName)
+                Dim bytes = File.ReadAllBytes(resourcePath)
+                If KnownSaturnDialogueLayout.ForFile(officialName, bytes).Count = 0 Then verifiedBeta = False
+                result.Entries.AddRange(NativeDialogueScanner.ScanBytes(officialName, bytes))
+                handled.Add(officialName)
             Next
-            result.Summary = $"Folder scan complete: {result.FileCount} MURA files, {result.Entries.Count:N0} indexed messages."
+            If Not verifiedBeta Then
+                'Fallback for modified or other Saturn revisions:
+                'inspect remaining resources without claiming the beta layout.
+                For Each resourcePath In filePaths
+                    Dim resourceName = Path.GetFileName(resourcePath)
+                    If handled.Contains(resourceName) Then Continue For
+                    progress.Report("Scanning unrecognized resource: " & resourceName)
+                    result.Entries.AddRange(NativeDialogueScanner.ScanBytes(resourceName, File.ReadAllBytes(resourcePath)))
+                Next
+            End If
+            result.Summary = If(verifiedBeta,
+                $"Verified Saturn English Beta text: {result.Entries.Count:N0} messages in 12 known MURA resources ({result.FileCount} files discovered).",
+                $"Revision-specific scan: {result.FileCount} MURA resources, {result.Entries.Count:N0} candidate messages. Native glyphs decoded where known.")
         Else
             Using disc = SaturnDisc.Open(source)
-                Dim mura = disc.Files.Where(Function(x) Not x.IsDirectory AndAlso x.Name.StartsWith("MURA_", StringComparison.OrdinalIgnoreCase) AndAlso x.Name.EndsWith(".BIN", StringComparison.OrdinalIgnoreCase)).ToArray()
+                Dim mura = disc.Files.Where(Function(x) Not x.IsDirectory AndAlso
+                    x.Name.StartsWith("MURA_", StringComparison.OrdinalIgnoreCase) AndAlso
+                    x.Name.EndsWith(".BIN", StringComparison.OrdinalIgnoreCase)).ToArray()
                 result.FileCount = mura.Length
-                If mura.Length = 0 Then Throw New InvalidDataException($"ISO9660 volume parsed ({disc.Files.Count} entries), but no MURA_*.BIN files exist on this disc.")
-                For Each e In mura
-                    progress.Report($"Reading {e.Name} ({e.Length:N0} bytes), {disc.SectorSize}-byte sectors...")
-                    result.Entries.AddRange(NativeDialogueScanner.ScanBytes(e.Name, disc.ReadFileBytes(e)))
+                If mura.Length = 0 Then
+                    Throw New InvalidDataException($"ISO9660 volume parsed ({disc.Files.Count} entries), but no MURA_*.BIN files exist on this disc.")
+                End If
+                For Each officialName In officialNames
+                    Dim resource = disc.FindFile(officialName)
+                    If resource Is Nothing Then
+                        verifiedBeta = False
+                        Continue For
+                    End If
+                    progress.Report($"Reading real Saturn dialogues: {resource.Name} ({resource.Length:N0} bytes)...")
+                    Dim bytes = disc.ReadFileBytes(resource)
+                    If KnownSaturnDialogueLayout.ForFile(resource.Name, bytes).Count = 0 Then verifiedBeta = False
+                    result.Entries.AddRange(NativeDialogueScanner.ScanBytes(resource.Name, bytes))
+                    handled.Add(resource.Name)
                 Next
-                result.Summary = $"{disc.SectorSize}-byte disc scan complete: {result.FileCount} MURA files, {result.Entries.Count:N0} pointer-linked dialogues."
+                If Not verifiedBeta Then
+                    For Each resource In mura
+                        If handled.Contains(resource.Name) Then Continue For
+                        progress.Report($"Scanning unrecognized resource: {resource.Name} ({resource.Length:N0} bytes)...")
+                        result.Entries.AddRange(NativeDialogueScanner.ScanBytes(resource.Name, disc.ReadFileBytes(resource)))
+                    Next
+                End If
+                result.Summary = If(verifiedBeta,
+                    $"Verified Saturn English Beta: {result.Entries.Count:N0} decoded messages from 12 text resources, {result.FileCount} MURA files discovered.",
+                    $"{disc.SectorSize}-byte disc scan: {result.FileCount} MURA files, {result.Entries.Count:N0} candidate messages (unknown revision).")
             End Using
+        End If
+        If verifiedBeta AndAlso result.Entries.Count <> 10882 Then
+            result.Summary &= $" WARNING: expected 10,882 indexed entries, found {result.Entries.Count:N0}; check original ISO revision."
         End If
         Return result
     End Function
