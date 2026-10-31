@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*EN_EDITED.bin
+*EN_EDITED.cue
+*.bak
