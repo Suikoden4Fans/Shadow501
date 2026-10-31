@@ -52,14 +52,14 @@ Public NotInheritable Class DialogueEncoding
         Return Convert.ToHexString(bytes)
     End Function
     Public Shared Sub ValidatePatch(original As Byte(), encoded As Byte(), sourceKey As String)
-        If original.Length < 2 OrElse original(0) <> &HDF OrElse original(original.Length - 1) <> &HF Then
-            Throw New InvalidDataException("Unknown source message format (expected DF...0F): " & sourceKey)
+        If original.Length < 2 OrElse original(original.Length - 1) <> &HF Then
+            Throw New InvalidDataException("Source message lacks a valid 0F terminator: " & sourceKey)
         End If
         If encoded.Length < 2 OrElse encoded.Length > original.Length Then
             Throw New InvalidDataException($"Message does not fit original allocation ({encoded.Length} > {original.Length}): {sourceKey}")
         End If
-        If encoded(0) <> &HDF OrElse encoded(encoded.Length - 1) <> &HF Then
-            Throw New InvalidDataException("Translation must begin with DF and finish with 0F: " & sourceKey)
+        If encoded(encoded.Length - 1) <> &HF Then
+            Throw New InvalidDataException("Translation must finish with native 0F terminator: " & sourceKey)
         End If
     End Sub
     Public Shared Function LoadGlyphMap(path As String) As Dictionary(Of Char, Byte())
@@ -72,9 +72,10 @@ Public NotInheritable Class DialogueEncoding
         Next
         Return map
     End Function
-    Public Shared Function EncodeEnglish(s As String, glyphs As Dictionary(Of Char, Byte())) As Byte()
+    Public Shared Function EncodeEnglish(s As String, glyphs As Dictionary(Of Char, Byte()), Optional startsWithQuote As Boolean = True) As Byte()
         If glyphs Is Nothing OrElse glyphs.Count = 0 Then Throw New InvalidOperationException("Load a verified Saturn English glyph mapping before encoding.")
-        Dim output As New List(Of Byte) From {&HDF}
+        Dim output As New List(Of Byte)
+        If startsWithQuote Then output.Add(&HDF)
         Dim i = 0
         While i < s.Length
             Dim ch = s(i)
