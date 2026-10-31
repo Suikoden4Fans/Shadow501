@@ -398,7 +398,6 @@ Public NotInheritable Class CsvStore
         Next
         Return result
     End Function
-    End Sub
     Public Shared Function ImportInto(path As String, entries As IList(Of DialogueEntry)) As Integer
         Dim byLocation As New Dictionary(Of String, List(Of DialogueEntry))(StringComparer.OrdinalIgnoreCase)
         For Each e In entries
