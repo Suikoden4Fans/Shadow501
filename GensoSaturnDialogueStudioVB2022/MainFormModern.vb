@@ -10,6 +10,7 @@ Imports System.Collections.Generic
 Imports System.ComponentModel
 Imports System.Windows.Forms
 Imports System.Globalization
+Imports System.Threading
 
 Public Class MainForm
     Inherits Form
@@ -34,6 +35,8 @@ Public Class MainForm
     Private ReadOnly status As New ToolStripStatusLabel("Open ISO / BIN / CUE to start scanning.")
     Private ReadOnly progressBar As New ToolStripProgressBar()
     Private ReadOnly buttons As New List(Of Button)
+    Private stopTranslateButton As Button
+    Private translating As CancellationTokenSource
 
     Private messages As New List(Of DialogueEntry)()
     Private chosen As DialogueEntry
@@ -47,7 +50,7 @@ Public Class MainForm
     Private fileCount As Integer
 
     Public Sub New()
-        Text = "Genso Suikoden • Saturn Dialogue Studio | VB2022 v0.2.1"
+        Text = "Genso Suikoden • Saturn Dialogue Studio | VB2022 v0.2.2"
         StartPosition = FormStartPosition.CenterScreen
         Size = New Size(1510, 915)
         MinimumSize = New Size(1080, 720)
@@ -66,12 +69,17 @@ Public Class MainForm
 
         Dim toolbar As New FlowLayoutPanel With {.Dock = DockStyle.Top, .Height = 93, .Padding = New Padding(13, 8, 10, 5), .BackColor = cardColor, .WrapContents = True, .AutoScroll = True}
         AddButton(toolbar, "OPEN ISO / BIN / CUE", AddressOf PickImage, True, 188)
+        AddButton(toolbar, "OPEN DIALOGUE CSV", AddressOf OpenCsvStandalone, False, 183)
         AddButton(toolbar, "SCAN MURA FOLDER", AddressOf PickFolder, False, 175)
-        AddButton(toolbar, "LOAD JP INDEX", AddressOf PickIndex, False, 145)
+        AddButton(toolbar, "IMPORT PRIOR JP/EN", AddressOf PickIndex, False, 177)
         AddButton(toolbar, "IMPORT CSV", AddressOf ImportCsv, False, 130)
         AddButton(toolbar, "EXPORT CSV", AddressOf ExportCsv, False, 130)
         AddButton(toolbar, "LOAD GLYPH MAP", AddressOf PickGlyphs, False, 160)
         AddButton(toolbar, "ENCODE ENGLISH", AddressOf EncodeSelected, False, 167)
+        AddButton(toolbar, "TRANSLATE ALL", AddressOf TranslateAll, True, 157)
+        AddButton(toolbar, "STOP TRANSLATION", AddressOf StopTranslation, False, 168)
+        stopTranslateButton = buttons.Last()
+        stopTranslateButton.Enabled = False
         AddButton(toolbar, "REBUILD GAME COPY", AddressOf BuildCopy, True, 182)
 
         Dim metrics As New Panel With {.Dock = DockStyle.Top, .Height = 54, .BackColor = canvasColor, .Padding = New Padding(17, 5, 10, 0)}
@@ -95,7 +103,7 @@ Public Class MainForm
         search.BackColor = softColor : search.ForeColor = ink
         search.Font = New Font("Segoe UI", 11.0F)
         viewMode.DropDownStyle = ComboBoxStyle.DropDownList
-        viewMode.Items.AddRange(New String() {"All dialogues", "Untranslated", "English drafts", "Patch ready", "Japanese available"})
+        viewMode.Items.AddRange(New String() {"All dialogues", "Untranslated", "English drafts", "Patch ready", "Japanese available", "Over game limit", "Needs review"})
         viewMode.SelectedIndex = 0
         viewMode.Size = New Size(180, 30)
         viewMode.Anchor = AnchorStyles.Top Or AnchorStyles.Right
@@ -213,6 +221,7 @@ Public Class MainForm
         For Each b In buttons
             b.Enabled = Not value
         Next
+        If stopTranslateButton IsNot Nothing Then stopTranslateButton.Enabled = translating IsNot Nothing
         progressBar.Visible = value
         status.Text = label
         Cursor = If(value, Cursors.WaitCursor, Cursors.Default)
@@ -221,7 +230,8 @@ Public Class MainForm
     Private Sub RefreshMetrics()
         Dim draft = messages.Where(Function(x) x.English.Length > 0).Count()
         Dim patchCount = messages.Where(Function(x) x.ReplacementHex.Length > 0).Count()
-        summary.Text = $"FILES  {fileCount:N0}       |       DIALOGUES  {messages.Count:N0}       |       ENGLISH DRAFTS  {draft:N0}       |       PATCH READY  {patchCount:N0}    " & If(currentSource.Length = 0, "", "    |    " & Path.GetFileName(currentSource))
+        Dim over = messages.Where(Function(x) x.TranslationFit = "OVER LIMIT").Count()
+        summary.Text = $"FILES  {fileCount:N0}       |       DIALOGUES  {messages.Count:N0}       |       ENGLISH DRAFTS  {draft:N0}       |       OVER LIMIT  {over:N0}       |       PATCH READY  {patchCount:N0}    " & If(currentSource.Length = 0, "", "    |    " & Path.GetFileName(currentSource))
     End Sub
 
     Private Sub RefreshGrid()
@@ -236,6 +246,8 @@ Public Class MainForm
             Case 2 : candidates = candidates.Where(Function(x) x.English.Length > 0)
             Case 3 : candidates = candidates.Where(Function(x) x.ReplacementHex.Length > 0)
             Case 4 : candidates = candidates.Where(Function(x) x.Japanese.Length > 0)
+            Case 5 : candidates = candidates.Where(Function(x) x.TranslationFit = "OVER LIMIT")
+            Case 6 : candidates = candidates.Where(Function(x) x.TranslationFit = "REVIEW")
         End Select
         binding.DataSource = New BindingList(Of DialogueEntry)(candidates.ToList())
         status.Text = $"{binding.Count:N0} / {messages.Count:N0} records shown. " & If(modified, "Unsaved changes.", "Original game remains unchanged.")
@@ -256,6 +268,8 @@ Public Class MainForm
     Private Sub EditEnglish(sender As Object, e As EventArgs)
         If chosen Is Nothing OrElse loading Then Return
         chosen.English = englishText.Text : modified = True
+        chosen.TranslationFit = ""
+        chosen.TranslationNote = "Manually modified. Recheck encoded byte capacity."
         binding.ResetCurrentItem()
         RefreshMetrics()
     End Sub
@@ -412,7 +426,7 @@ Public Class MainForm
 
     Private Async Sub PickIndex(sender As Object, e As EventArgs)
         If messages.Count = 0 Then
-            MessageBox.Show(Me, "Open a Saturn ISO/BIN/CUE or MURA folder first, then load its matching dialogue index.", "No scan yet")
+            MessageBox.Show(Me, "Open a Saturn ISO/BIN/CUE or dialogue CSV first, then load its matching earlier JP/EN index.", "No dialogue list")
             Return
         End If
         Using dlg As New OpenFileDialog With {.Title = "Select verified Saturn dialogue index", .Filter = "Legacy dialogue catalogue|*.json"}
