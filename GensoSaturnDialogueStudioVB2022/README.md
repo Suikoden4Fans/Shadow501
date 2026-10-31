@@ -1,4 +1,4 @@
-# Genso Suikoden Saturn Dialogue Studio — VB2022 v0.1.1
+# Genso Suikoden Saturn Dialogue Studio — VB2022 v0.1.2
 
 Native Visual Basic .NET 8 Windows Forms source for Visual Studio 2022. No Python runtime or scripts.
 
@@ -31,6 +31,9 @@ Native Visual Basic .NET 8 Windows Forms source for Visual Studio 2022. No Pytho
 ## Backup
 The entire original game directory stays unchanged. Export your translation CSV as a versioned backup before patching. Each Build MURA Copy operation outputs only to a distinct folder.
 
+## v0.1.2 repair
+- Replaced ApplicationConfiguration.Initialize() with Visual Basic WinForms Application.EnableVisualStyles() and Application.SetCompatibleTextRenderingDefault(False).
+
 ## v0.1.1 repairs
 - Corrected ReadCsv path parameter so it does not shadow System.IO.File (VB is case-insensitive).
 - Removed invalid ExpectedLength initialization that prevented compilation.
@@ -41,4 +44,4 @@ The entire original game directory stays unchanged. Export your translation CSV 
 - `MainForm.vb` — WinForms UI and dialogue record handling
 - `sample_glyph_map.csv` — placeholder format for future verified English encodings
 
-Version: 0.1.1 | Source authoring: 2026-10-31
+Version: 0.1.2 | Source authoring: 2026-10-31
