@@ -435,7 +435,8 @@ Public Class MainForm
             Try
                 Dim imported = Await Task.Run(Function() LegacyIndex.ApplyFromFile(dlg.FileName, messages))
                 lastIndex = dlg.FileName
-                SetBusy(False, $"{imported:N0} Japanese entries verified against disc data.")
+                modified = True
+                SetBusy(False, $"{imported:N0} existing catalogue matches loaded. Export CSV to save imported drafts.")
                 RefreshGrid() : RefreshMetrics()
                 MessageBox.Show(Me, $"Verified and loaded {imported:N0} Japanese dialogues from the supplied index. Unmatched records remain intact.", "Index imported")
             Catch ex As Exception
