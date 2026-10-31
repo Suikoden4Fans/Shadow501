@@ -11,4 +11,8 @@
     <Nullable>disable</Nullable>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Preserve the v0.1.x interface source but compile the new modern one. -->
+    <Compile Remove="MainForm.vb" />
+  </ItemGroup>
 </Project>
