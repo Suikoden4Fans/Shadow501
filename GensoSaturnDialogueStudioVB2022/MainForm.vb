@@ -29,7 +29,7 @@ Public Class MainForm
     Private dirty As Boolean
 
     Public Sub New()
-        Text = "Genso Suikoden Saturn Dialogue Studio — VB2022 v0.1.0"
+        Text = "Genso Suikoden Saturn Dialogue Studio — VB2022 v0.1.1"
         Width = 1420 : Height = 860 : MinimumSize = New Size(980, 650)
         Dim bar As New FlowLayoutPanel With {.Dock = DockStyle.Top, .Height = 76, .AutoScroll = True, .WrapContents = True}
         AddButton(bar, "Open Dialogue Index", AddressOf OpenIndex)
@@ -125,8 +125,7 @@ Public Class MainForm
                             .Japanese = Prop(o, "source_text"), .English = Prop(o, "english_text"),
                             .EncodedHex = Prop(o, "encoded_hex"),
                             .OriginalSha = Prop(o, "source_sha256"),
-                            .TextOffset = LongProp(o, "text_offset"),
-                            .ExpectedLength = 0})
+                            .TextOffset = LongProp(o, "text_offset")})
                     Next
                 End Using
             Else
@@ -223,8 +222,8 @@ Public Class MainForm
         If cur.Count > 1 OrElse cur(0) <> "" Then result.Add(cur.ToArray())
         Return result
     End Function
-    Private Shared Function ReadCsv(file As String) As List(Of DialogueRow)
-        Dim data = ParseCsv(File.ReadAllText(file, Encoding.UTF8))
+    Private Shared Function ReadCsv(filePath As String) As List(Of DialogueRow)
+        Dim data = ParseCsv(System.IO.File.ReadAllText(filePath, Encoding.UTF8))
         If data.Count < 2 Then Return New List(Of DialogueRow)()
         Dim h = data(0).Select(Function(x) x.TrimStart(ChrW(&HFEFF))).ToArray()
         Dim getv As Func(Of String(), String, String) = Function(a, k)
