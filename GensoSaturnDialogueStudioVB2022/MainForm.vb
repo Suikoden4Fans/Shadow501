@@ -93,7 +93,7 @@ Public Class MainForm
         Dim sb As New StatusStrip()
         sb.Items.Add(status)
         Controls.Add(split) : Controls.Add(sb) : Controls.Add(searchBar) : Controls.Add(bar)
-        FormClosing += Sub(sender, args)
+        AddHandler Me.FormClosing, Sub(sender, args)
                            If dirty AndAlso MessageBox.Show("Unsaved English changes. Close anyway?", "Confirm", MessageBoxButtons.YesNo) <> DialogResult.Yes Then args.Cancel = True
                        End Sub
     End Sub
@@ -208,8 +208,8 @@ Public Class MainForm
                 End If
             ElseIf c = ","c AndAlso Not quoted Then
                 cur.Add(cell.ToString()) : cell.Clear()
-            ElseIf (c = vbLf OrElse c = vbCr) AndAlso Not quoted Then
-                If c = vbCr AndAlso i + 1 < s.Length AndAlso s(i + 1) = vbLf Then i += 1
+            ElseIf (c = ChrW(10) OrElse c = ChrW(13)) AndAlso Not quoted Then
+                If c = ChrW(13) AndAlso i + 1 < s.Length AndAlso s(i + 1) = ChrW(10) Then i += 1
                 cur.Add(cell.ToString()) : cell.Clear()
                 If cur.Count > 1 OrElse cur(0) <> "" Then result.Add(cur.ToArray())
                 cur = New List(Of String)()
