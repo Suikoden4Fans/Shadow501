@@ -257,9 +257,9 @@ Public NotInheritable Class AppSelfTests
         Dim over = TranslationRules.CheckDraft(japanese, gameHex, "Welcome home![0E]My friend Gremio.")
         Check(over.Status = "OVER LIMIT", "over limit must not be silently truncated")
 
-        Dim jpWithGlyph = "[01 41]帝[0E]"
+        Dim jpWithGlyph = "[01 1B]配[0E]"
         Dim prepared = TranslationRules.PrepareJapanese(jpWithGlyph)
-        Check(prepared.Contains("皇") AndAlso prepared.Contains("[0E]"),
+        Check(prepared.Contains("心") AndAlso prepared.Contains("[0E]"),
               "known Kanji glyphs decoded; runtime control preserved")
         Dim csv = Path.Combine(folder, "translation-autosave.csv")
         Dim entry As New DialogueEntry With {.Key = "test", .FileName = "MURA_A1.BIN",
