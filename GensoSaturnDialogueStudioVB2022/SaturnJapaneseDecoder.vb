@@ -342,6 +342,14 @@ Public NotInheritable Class SaturnJapaneseDecoder
         {"E8", ChrW(&HFF1F)}
     }
 
+    Public Shared Function GetMappedGlyph(code As String) As String
+        Dim value As String = Nothing
+        If glyphs.TryGetValue(If(code, "").Replace(" ", "").ToUpperInvariant(), value) Then
+            Return value
+        End If
+        Return Nothing
+    End Function
+
     Public Shared Function Decode(encodedHex As String) As String
         Dim bytes = DialogueEncoding.HexToBytes(encodedHex)
         Dim result As New StringBuilder()
