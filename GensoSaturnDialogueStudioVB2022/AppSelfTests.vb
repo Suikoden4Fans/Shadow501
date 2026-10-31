@@ -98,10 +98,10 @@ Public NotInheritable Class AppSelfTests
     End Function
 
     Private Shared Sub TestDisc(tempFolder As String, raw As Boolean)
-        Dim path = Path.Combine(tempFolder, If(raw, "fixture.bin", "fixture.iso"))
+        Dim fixturePath As String = Path.Combine(tempFolder, If(raw, "fixture.bin", "fixture.iso"))
         Dim payload = IsoFixture()
         If raw Then
-            Using output As New FileStream(path, FileMode.CreateNew)
+            Using output As New FileStream(fixturePath, FileMode.CreateNew)
                 For lba = 0 To 27
                     Dim sector(2351) As Byte
                     sector(0) = 0
@@ -122,9 +122,9 @@ Public NotInheritable Class AppSelfTests
                 "  TRACK 01 MODE1/2352" & vbCrLf &
                 "    INDEX 01 00:00:00" & vbCrLf)
         Else
-            File.WriteAllBytes(path, payload)
+            File.WriteAllBytes(fixturePath, payload)
         End If
-        Dim toOpen = If(raw, Path.Combine(tempFolder, "fixture.cue"), path)
+        Dim toOpen = If(raw, Path.Combine(tempFolder, "fixture.cue"), fixturePath)
         Dim outDir = Path.Combine(tempFolder, If(raw, "rawOutput", "isoOutput"))
         Using disc = SaturnDisc.Open(toOpen)
             Check(disc.SectorSize = If(raw, 2352, 2048), "image sector detection")
@@ -165,10 +165,10 @@ Public NotInheritable Class AppSelfTests
     Private Shared Sub TestCsvAndEncoding(folder As String)
         Dim r = New DialogueEntry With {.Key = "Test", .FileName = "MURA_A1.BIN", .TextOffset = 10, .PointerOffset = 100,
             .EncodedHex = "DF410F", .Japanese = "おはよう", .English = "Hello," & vbLf & "world"}
-        Dim path = Path.Combine(folder, "project.csv")
-        CsvStore.Save(path, {r})
+        Dim csvPath As String = Path.Combine(folder, "project.csv")
+        CsvStore.Save(csvPath, {r})
         Dim reload = New DialogueEntry With {.Key = r.Key, .FileName = r.FileName, .TextOffset = r.TextOffset, .PointerOffset = r.PointerOffset, .EncodedHex = r.EncodedHex}
-        Dim count = CsvStore.ImportInto(path, {reload})
+        Dim count = CsvStore.ImportInto(csvPath, {reload})
         Check(count = 1 AndAlso reload.English = r.English, "CSV multiline quoting and import")
         Dim mapping As New Dictionary(Of Char, Byte()) From {{"A"c, {CByte(&H41)}}, {"!"c, {CByte(&H21)}}}
         Dim bytes = DialogueEncoding.EncodeEnglish("A[04 09][0E]!", mapping)
