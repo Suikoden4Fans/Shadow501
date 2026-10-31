@@ -1,47 +1,54 @@
-# Genso Suikoden Saturn Dialogue Studio — VB2022 v0.1.2
+# Genso Suikoden Sega Saturn Dialogue Studio — Visual Basic 2022 v0.2.0
 
-Native Visual Basic .NET 8 Windows Forms source for Visual Studio 2022. No Python runtime or scripts.
+**Pure Visual Basic .NET 8 / Windows Forms.** No Python application, and no Python dependency.
 
-## Open and run
-1. Download the source branch ZIP from GitHub.
-2. Extract it and open `GensoSaturnDialogueStudioVB2022/GensoSaturnDialogueStudio.vbproj` with Visual Studio 2022.
-3. Install the .NET 8 desktop workload if prompted. Build and run.
-4. Use **Open Dialogue Index** to select the existing `Suikoden_Saturn_Translation_Batch001_Imported.json` from your own files, or a previously exported CSV. JSON is supported *only as an input adapter* for the original 10,882-record index; the GUI exposes text fields and CSV files, not JSON editing.
-5. Search the rows, edit English translations and save or import/export CSV. Text and line breaks are preserved.
-6. **Original encoded hex** is shown for each row. **Manual replacement hex** is the only input actually written to copied MURA game files. A draft translation is not automatically converted into Saturn glyph bytes. To convert English safely, a complete verified English font/code table is required.
-7. For binary patching select **Open MURA Folder**, enter complete replacement hex for selected rows including 0F terminator, choose **Build MURA Copy** and select a *different* output folder. The app checks the source file SHA where supplied, verifies original bytes at each offset and refuses strings longer than their original allocation. The original MURA files remain untouched.
+## Major fixes from v0.1.2
 
-## Implemented
-- Indexed dialogue grid with search/filter (10,882-record data set supported).
-- Japanese source and English text editors, manual hex patch field.
-- CSV import/export with quoted multiline text, no external packages.
-- SHA256 source verification and exact byte verification at each patch site.
-- Validated fixed-size or shorter patched MURA output copies.
-- Fully separate output path; refuses overwriting existing output file.
-- Open ISO/BIN selector, but editing raw tracks **not yet supported**.
+1. **OPEN ISO / BIN / CUE scans immediately:** opens ISO9660, locates `MURA_*.BIN` files on the game image and searches for validated pointer-linked `DF ... 0F` native Saturn message records. Source data is read directly from the disc without extracting it manually. Raw Mode1/2352, 2448 and logical 2048-sector images are recognized; unsafe or unknown formats are rejected.
+2. **New modern dark UI:** slate/charcoal windows, turquoise controls, full searchable dialogue table, English editor, native bytes, patch bytes, progress status, translation counts and filtering.
+3. **Game copy rebuild implemented for compatible fixed-size patches:** copies ISO or MODE1/2352 BIN image, applies verified in-place text edits, recomputes CD-ROM Mode1 sector EDC and ECC P/Q, and generates a separately renamed CUE. Existing audio tracks are copied as-is.
+4. **MURA folder scan and rebuild:** works if you have already extracted the Saturn files. Modified MURA files go in a separate output folder; originals remain untouched.
+5. **CSV import/export and backup:** all exported rows retain source file, pointer/text offsets, native hex and translations. When exporting CSV over an existing file, a timestamped backup is saved.
+6. **Legacy Japanese index overlay:** native Saturn dialogue glyphs are custom-encoded; for readable Japanese use **LOAD JP INDEX** on your previously recovered `Suikoden_Saturn_Translation_Batch001_Imported.json`. The app compares file, pointer, offset and raw bytes before attaching Japanese/English text. It also auto-detects that index if it is beside the game image or app. This is a compatibility input, not a JSON editing interface.
 
-## Limitations — IMPORTANT
-- **BIN/CUE rebuild not yet implemented**: the Build ISO 2048 Copy control deliberately reports unsupported rather than produce a corrupted image.
-- **Saturn English font encoding not automatically solved**: translated text is a saved draft, not a game patch until a verified glyph mapping, control code handling and pointer relocation design are supplied.
-- **Longer messages and pointer changes unsupported.** Only explicit equal-or-shorter raw byte replacements within the existing allocation are applied.
-- Source was authored but **not compiled or emulator-tested** in this environment.
-- Do not confuse `MURA` copy generation with a playable rebuilt disc.
-- Do not commit your original game image or private translation dataset to a public repository.
+## How to run
 
-## Backup
-The entire original game directory stays unchanged. Export your translation CSV as a versioned backup before patching. Each Build MURA Copy operation outputs only to a distinct folder.
+Open `GensoSaturnDialogueStudio.vbproj` in **Visual Studio 2022** with .NET 8 Desktop installed. Press Start (F5). Or use the precompiled Windows executable attached to the successful GitHub Actions build of this branch.
 
-## v0.1.2 repair
-- Replaced ApplicationConfiguration.Initialize() with Visual Basic WinForms Application.EnableVisualStyles() and Application.SetCompatibleTextRenderingDefault(False).
+Open your **GENSO SUIKODEN.cue**, `.bin` or `.iso`; the game should be scanned immediately and a list of pointer-linked messages loaded. Search text or filter results, select a record and edit the English field. Press **EXPORT CSV** periodically to save your translation work.
 
-## v0.1.1 repairs
-- Corrected ReadCsv path parameter so it does not shadow System.IO.File (VB is case-insensitive).
-- Removed invalid ExpectedLength initialization that prevented compilation.
+To put text inside the game:
 
-## Structure
-- `GensoSaturnDialogueStudio.vbproj` — Visual Studio 2022 project
-- `Program.vb` — GUI entry point
-- `MainForm.vb` — WinForms UI and dialogue record handling
-- `sample_glyph_map.csv` — placeholder format for future verified English encodings
+- The native message format is custom-encoded. English draft text is **not** automatically written as ASCII or Shift-JIS.
+- Option A: load a **verified glyph map CSV** mapping each English character to the exact bytes in the Saturn game's installed English font, then press **ENCODE ENGLISH** on a selected message.
+- Option B: manually supply the fully encoded `DF ... 0F` replacement in the patch field.
+- The new message cannot be longer than its original allocation. A patch requires exact original-byte matches at the known offsets. For long text requiring relocation, no unsafe or guessed pointer edits are attempted.
+- Use **REBUILD GAME COPY** and choose a **different output folder**. A new BIN/ISO (plus CUE, if supplied) is built; the original files remain unchanged.
 
-Version: 0.1.2 | Source authoring: 2026-10-31
+If the game file is modified from a different release, the native pointer scanner may find fewer or different entries than the previously indexed 10,882 messages. The old catalogue is used only after validation, never blindly applied.
+
+## Technical constraints
+
+- **Pointer table discovery:** scans contiguous big-endian `0x0020xxxx`-style Saturn text pointers using 2048-byte-aligned resource bank bases, minimum three consecutive records per group. Unidentified groups are deliberately not invented; the exact record count depends on the disc revision.
+- **File format:** ISO9660 volume descriptor and file extents are required. Read-mode supports 2048, Mode1/2352 and 2448-sector containers. Write-mode supports 2048 and Mode1/2352/2448 with 16-byte Mode1 user-data offset. Unsupported Mode2 write scenarios are blocked. Data relocation, file expansion, new LBA tables and event-script rewrites are **not implemented**.
+- **Integrity:** changed raw Mode1 sectors have EDC and ECC P/Q recomputed. Original data size, file extent, pointers, non-target bytes, and other tracks are unchanged.
+- **Test scope:** the GitHub Actions workflow builds on Windows and runs synthetic ISO9660 and MODE1 BIN/CUE round-trip tests. A PASS on those fixtures is **not** an emulator validation of the commercial game.
+- **No original commercial game image or translation data is stored in this public source branch.**
+
+## Backup versions
+
+The v0.1.2, v0.1.1 and v0.1.0 branches remain separate and unchanged. Keep a backup of your original Saturn game and your translation CSV. This v0.2.0 never overwrites an input BIN, CUE or MURA file.
+
+## Source layout
+
+- `Program.vb` — Visual Basic startup and command-line self-test switch
+- `MainFormModern.vb` — modern WinForms UI, automatic scanning, manual translation and rebuild workflow
+- `SaturnDisc.vb` — ISO9660 / raw CD sector reader and disc-copy patching
+- `NativeDialogueScanner.vb` is implemented inside `DialogueData.vb`
+- `DialogueData.vb` — pointer scanner, legacy index verification, CSV, glyph encoder
+- `CdRomEccEdc.vb` — Mode1 integrity rebuilding
+- `ResourceFolderPatcher.vb` — extracted resource safety workflow
+- `AppSelfTests.vb` — regression tests
+- `MainForm.vb` — historical v0.1.x source retained but excluded from compilation
+
+**Version:** v0.2.0 — 2026-10-31
