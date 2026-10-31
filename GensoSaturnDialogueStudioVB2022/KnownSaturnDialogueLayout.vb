@@ -703,6 +703,15 @@ Public NotInheritable Class KnownSaturnDialogueLayout
         Return rejectedSlots.Contains(filename & "|" & bank.ToString() & "|" & group.ToString() & "|" & message.ToString())
     End Function
 
+    Public Shared Function ExpectedRecordCount() As Integer
+        Dim total As Integer = 0
+        For Each row In layouts
+            Dim columns = row.Split("|"c)
+            total += Integer.Parse(columns(5))
+        Next
+        Return total - rejectedSlots.Count
+    End Function
+
     Public Shared Function ForFile(filename As String, bytes As Byte()) As List(Of SaturnTableSpec)
         Dim expected As String = Nothing
         If Not fingerprints.TryGetValue(filename, expected) Then Return New List(Of SaturnTableSpec)()
