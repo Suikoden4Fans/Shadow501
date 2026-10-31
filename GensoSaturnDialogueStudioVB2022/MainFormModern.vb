@@ -160,7 +160,7 @@ Public Class MainForm
         editor.Controls.Add(FieldLabel("PATCH BYTES  /  SAFE FIXED LENGTH"), 0, 6)
         ConfigureEditor(replacementHex, False, True) : editor.Controls.Add(replacementHex, 0, 7)
 
-        Dim hint As New Label With {.Dock = DockStyle.Bottom, .Height = 45, .ForeColor = muted, .Text = "Scan finds pointer-linked messages. Japanese display requires the matching JP index. English needs a verified glyph map before it can be encoded.", .Padding = New Padding(16, 4, 10, 0), .Font = New Font("Segoe UI", 8.6F)}
+        Dim hint As New Label With {.Dock = DockStyle.Bottom, .Height = 45, .ForeColor = muted, .Text = "Japanese is decoded directly from Saturn game bytes. Unknown glyphs appear as [HEX]. English insertion requires a verified font mapping.", .Padding = New Padding(16, 4, 10, 0), .Font = New Font("Segoe UI", 8.6F)}
         split.Panel2.Controls.Add(editor) : split.Panel2.Controls.Add(hint) : split.Panel2.Controls.Add(rightHeader)
 
         Dim strip As New StatusStrip With {.BackColor = Color.FromArgb(10, 16, 27), .ForeColor = muted, .SizingGrip = False}
