@@ -2,9 +2,10 @@ Imports System
 Imports System.Windows.Forms
 
 Friend Module Program
-    <STAThread>
+    <STAThread()>
     Public Sub Main()
-        ApplicationConfiguration.Initialize()
+        Application.EnableVisualStyles()
+        Application.SetCompatibleTextRenderingDefault(False)
         Application.Run(New MainForm())
     End Sub
 End Module
