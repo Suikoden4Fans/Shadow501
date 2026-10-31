@@ -18,6 +18,7 @@ Public NotInheritable Class AppSelfTests
         Try
             TestCsvAndEncoding(folder)
             TestKnownNativeMessages()
+            TestFalsePointerAliases()
             TestDisc(folder, False)
             TestDisc(folder, True)
             TestFolderPatch(folder)
@@ -210,6 +211,33 @@ Public NotInheritable Class AppSelfTests
         Check(known(1).Japanese = "カギがかかっている", "native katakana text is visible")
         Check(known(2).Japanese = "[04 00]「だれっ！」", "prefix controls are not treated as glyphs")
         Console.WriteLine("PASS: direct Japanese decoding, 10882 index layout, non-DF and control-prefixed text")
+    End Sub
+
+
+    Private Shared Sub TestFalsePointerAliases()
+        Dim elevatorHex = "DF99C1D5DCA5DC3C574B48E00EDF99C1D5DCA5DC3C574B6C5A47E00F"
+        Dim expected = "「エレベーターをつかう」[0E]「エレベーターをつかわない」"
+        Check(SaturnJapaneseDecoder.Decode(elevatorHex) = expected,
+              "actual elevator choices must display as readable Japanese")
+
+        'Regression: the old scanner falsely accepted dozens of references
+        'from a low-offset pointer table to the same real 0x900 string.
+        Dim bytes(4095) As Byte
+        Dim dialog = Convert.FromHexString(elevatorHex)
+        Buffer.BlockCopy(dialog, 0, bytes, &H900, dialog.Length)
+        For i As Integer = 0 To 11
+            For Each base As Integer In {&H100, &HD00}
+                Dim p = base + i * 4
+                bytes(p) = 0
+                bytes(p + 1) = &H20
+                bytes(p + 2) = &H9
+                bytes(p + 3) = 0
+            Next
+        Next
+        Dim heuristic = NativeDialogueScanner.ScanBytes("MURA_UNKNOWN.BIN", bytes)
+        Check(heuristic.Count = 0,
+              "forward and repeatedly aliased pointers must not invent dialogue rows")
+        Console.WriteLine("PASS: reported elevator text and false repeated/forward pointer aliases")
     End Sub
 
 End Class
