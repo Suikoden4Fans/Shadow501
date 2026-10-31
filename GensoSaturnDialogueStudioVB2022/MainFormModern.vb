@@ -174,7 +174,7 @@ Public Class MainForm
         AddHandler viewMode.SelectedIndexChanged, Sub() RefreshGrid()
         AddHandler englishText.TextChanged, AddressOf EditEnglish
         AddHandler replacementHex.TextChanged, AddressOf EditHex
-        AddHandler FormClosing, AddressOf OnFormClosing
+        AddHandler FormClosing, AddressOf CloseRequested
         RefreshMetrics()
     End Sub
 
@@ -213,8 +213,8 @@ Public Class MainForm
     End Sub
 
     Private Sub RefreshMetrics()
-        Dim draft = messages.Count(Function(x) x.English.Length > 0)
-        Dim patchCount = messages.Count(Function(x) x.ReplacementHex.Length > 0)
+        Dim draft = messages.Where(Function(x) x.English.Length > 0).Count()
+        Dim patchCount = messages.Where(Function(x) x.ReplacementHex.Length > 0).Count()
         summary.Text = $"FILES  {fileCount:N0}       |       DIALOGUES  {messages.Count:N0}       |       ENGLISH DRAFTS  {draft:N0}       |       PATCH READY  {patchCount:N0}    " & If(currentSource.Length = 0, "", "    |    " & Path.GetFileName(currentSource))
     End Sub
 
@@ -320,9 +320,9 @@ Public Class MainForm
         If folder Then
             Dim files = Directory.GetFiles(source, "MURA_*.BIN", SearchOption.TopDirectoryOnly).OrderBy(Function(x) x).ToArray()
             result.FileCount = files.Length
-            For Each path In files
-                progress.Report("Scanning extracted " & Path.GetFileName(path) & " ...")
-                result.Entries.AddRange(NativeDialogueScanner.ScanBytes(Path.GetFileName(path), File.ReadAllBytes(path)))
+            For Each filePath In files
+                progress.Report("Scanning extracted " & Path.GetFileName(filePath) & " ...")
+                result.Entries.AddRange(NativeDialogueScanner.ScanBytes(Path.GetFileName(filePath), File.ReadAllBytes(filePath)))
             Next
             result.Summary = $"Folder scan complete: {result.FileCount} MURA files, {result.Entries.Count:N0} indexed messages."
         Else
@@ -343,10 +343,10 @@ Public Class MainForm
     Private Shared Function FindNearbyIndex(source As String, folder As Boolean) As String
         Dim dirs = {If(folder, source, Path.GetDirectoryName(source)), AppContext.BaseDirectory}
         Dim names = {"Suikoden_Saturn_Translation_Batch001_Imported.json", "Suikoden_Saturn_English_Translation_Imported.json"}
-        For Each path In dirs
-            If String.IsNullOrWhiteSpace(path) Then Continue For
+        For Each dirPath In dirs
+            If String.IsNullOrWhiteSpace(dirPath) Then Continue For
             For Each filename In names
-                Dim candidate = Path.Combine(path, filename)
+                Dim candidate = Path.Combine(dirPath, filename)
                 If File.Exists(candidate) Then Return candidate
             Next
         Next
@@ -471,7 +471,7 @@ Public Class MainForm
         End Using
     End Sub
 
-    Private Sub OnFormClosing(sender As Object, e As FormClosingEventArgs)
+    Private Sub CloseRequested(sender As Object, e As FormClosingEventArgs)
         If modified AndAlso Not ConfirmDiscard() Then e.Cancel = True
     End Sub
 End Class
