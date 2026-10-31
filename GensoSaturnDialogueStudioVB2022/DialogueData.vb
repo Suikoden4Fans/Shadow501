@@ -24,6 +24,9 @@ Public Class DialogueEntry
     Public Property ReplacementHex As String = ""
     Public Property OriginalSha As String = ""
     Public Property Provenance As String = "Native pointer scan"
+    Public Property TranslationFit As String = ""
+    Public Property TranslationNote As String = ""
+    Public Property TranslationSource As String = ""
     Public ReadOnly Property PointerText As String
         Get
             Return PointerOffset.ToString("X8", CultureInfo.InvariantCulture)
@@ -36,7 +39,9 @@ Public Class DialogueEntry
     End Property
     Public ReadOnly Property StatusText As String
         Get
-            Return If(Not String.IsNullOrWhiteSpace(ReplacementHex), "PATCH READY", If(Not String.IsNullOrWhiteSpace(English), "DRAFT", "UNTRANSLATED"))
+            If Not String.IsNullOrWhiteSpace(ReplacementHex) Then Return "PATCH READY"
+            If Not String.IsNullOrWhiteSpace(TranslationFit) Then Return TranslationFit
+            Return If(Not String.IsNullOrWhiteSpace(English), "DRAFT", "UNTRANSLATED")
         End Get
     End Property
 End Class
@@ -338,13 +343,61 @@ Public NotInheritable Class CsvStore
             Dim backup = path & ".backup_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture)
             File.Copy(path, backup, False)
         End If
+        WriteRows(path, entries)
+    End Sub
+
+    Private Shared Sub WriteRows(path As String, entries As IEnumerable(Of DialogueEntry))
         Using w As New StreamWriter(path, False, New UTF8Encoding(True))
-            w.WriteLine("Key,File,PointerOffset,TextOffset,EncodedHex,Japanese,English,ReplacementHex,OriginalSha")
+            w.WriteLine("Key,File,PointerOffset,TextOffset,EncodedHex,Japanese,English,ReplacementHex,OriginalSha,FitStatus,ReviewNote,TranslationSource")
             For Each e In entries
-                Dim fields = New String() {e.Key, e.FileName, e.PointerOffset.ToString(CultureInfo.InvariantCulture), e.TextOffset.ToString(CultureInfo.InvariantCulture), e.EncodedHex, e.Japanese, e.English, e.ReplacementHex, e.OriginalSha}
+                Dim fields = New String() {e.Key, e.FileName, e.PointerOffset.ToString(CultureInfo.InvariantCulture), e.TextOffset.ToString(CultureInfo.InvariantCulture), e.EncodedHex, e.Japanese, e.English, e.ReplacementHex, e.OriginalSha, e.TranslationFit, e.TranslationNote, e.TranslationSource}
                 w.WriteLine(String.Join(",", fields.Select(Function(s) Quote(s))))
             Next
         End Using
+    End Sub
+
+    Public Shared Sub SaveCheckpoint(path As String, entries As IEnumerable(Of DialogueEntry))
+        Dim temp = path & ".writing"
+        Try
+            WriteRows(temp, entries)
+            File.Move(temp, path, True)
+        Finally
+            If File.Exists(temp) Then File.Delete(temp)
+        End Try
+    End Sub
+
+    Public Shared Function LoadFile(path As String) As List(Of DialogueEntry)
+        Dim data = Parse(File.ReadAllText(path, Encoding.UTF8))
+        Dim result As New List(Of DialogueEntry)()
+        If data.Count = 0 Then Return result
+        Dim headers = data(0).Select(Function(x) x.TrimStart(ChrW(&HFEFF))).ToArray()
+        Dim getv As Func(Of String(), String, String) = Function(row, col)
+            Dim n = Array.FindIndex(headers, Function(h) h.Equals(col, StringComparison.OrdinalIgnoreCase))
+            Return If(n < 0 OrElse n >= row.Length, "", row(n))
+        End Function
+        For Each row In data.Skip(1)
+            Dim offset As Long
+            Dim pointer As Long
+            If Not Long.TryParse(getv(row, "TextOffset"), NumberStyles.Integer, CultureInfo.InvariantCulture, offset) Then Continue For
+            If Not Long.TryParse(getv(row, "PointerOffset"), NumberStyles.Integer, CultureInfo.InvariantCulture, pointer) Then Continue For
+            Dim encoded = getv(row, "EncodedHex")
+            If String.IsNullOrWhiteSpace(encoded) Then Continue For
+            Try
+                Dim originalBytes = DialogueEncoding.HexToBytes(encoded)
+                If originalBytes.Length < 2 OrElse originalBytes(originalBytes.Length - 1) <> &HF Then Continue For
+            Catch
+                Continue For
+            End Try
+            result.Add(New DialogueEntry With {
+                .Key = getv(row, "Key"), .FileName = getv(row, "File"),
+                .PointerOffset = pointer, .TextOffset = offset, .EncodedHex = encoded,
+                .Japanese = getv(row, "Japanese"), .English = getv(row, "English"),
+                .ReplacementHex = getv(row, "ReplacementHex"), .OriginalSha = getv(row, "OriginalSha"),
+                .TranslationFit = getv(row, "FitStatus"), .TranslationNote = getv(row, "ReviewNote"),
+                .TranslationSource = getv(row, "TranslationSource")})
+        Next
+        Return result
+    End Function
     End Sub
     Public Shared Function ImportInto(path As String, entries As IList(Of DialogueEntry)) As Integer
         Dim byLocation As New Dictionary(Of String, List(Of DialogueEntry))(StringComparer.OrdinalIgnoreCase)
@@ -371,8 +424,16 @@ Public NotInheritable Class CsvStore
             If expectedHex.Length = 0 Then Continue For
             For Each e In match
                 If Not DialogueEncoding.NormalizeHex(e.EncodedHex).Equals(expectedHex, StringComparison.Ordinal) Then Continue For
-                e.English = readField(row, "English")
-                e.ReplacementHex = readField(row, "ReplacementHex")
+                Dim enText = readField(row, "English")
+                If enText.Length > 0 OrElse e.English.Length = 0 Then e.English = enText
+                Dim patch = readField(row, "ReplacementHex")
+                If patch.Length > 0 Then e.ReplacementHex = patch
+                Dim fit = readField(row, "FitStatus")
+                If fit.Length > 0 Then e.TranslationFit = fit
+                Dim note = readField(row, "ReviewNote")
+                If note.Length > 0 Then e.TranslationNote = note
+                Dim fromProvider = readField(row, "TranslationSource")
+                If fromProvider.Length > 0 Then e.TranslationSource = fromProvider
                 Dim jp = readField(row, "Japanese")
                 If jp.Length > 0 Then e.Japanese = jp
                 count += 1
