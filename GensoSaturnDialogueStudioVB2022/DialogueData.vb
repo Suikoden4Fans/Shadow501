@@ -118,7 +118,7 @@ Public NotInheritable Class NativeDialogueScanner
         Return (CInt(data(at + 1) - &H20) << 16) Or (CInt(data(at + 2)) << 8) Or CInt(data(at + 3))
     End Function
     Private Shared Function MessageEnd(data As Byte(), target As Integer) As Integer
-        If target < 0 OrElse target >= data.Length OrElse data(target) <> &HDF Then Return -1
+        If target < 0 OrElse target >= data.Length Then Return -1
         Dim limit = Math.Min(data.Length - 1, target + 2047)
         Dim i = target + 1
         While i <= limit
@@ -140,6 +140,9 @@ Public NotInheritable Class NativeDialogueScanner
         'Reject forward references: these caused repeated false rows
         '(e.g. 0x81828 at small pointer table offsets).
         If target >= pointerAt Then Return -1
+        'The heuristic is only a fallback for unrecognized disc revisions.
+        'Do not use it to guess a pointer table from arbitrary strings.
+        If data(CInt(target)) <> &HDF Then Return -1
         If MessageEnd(data, CInt(target)) < 0 Then Return -1
         Return CInt(target)
     End Function
@@ -174,9 +177,51 @@ Public NotInheritable Class NativeDialogueScanner
         Return count
     End Function
 
+    'For the exact Saturn English Beta v1.24 resource hashes, scan all
+    'known native pointer groups, including tables with only 1-2 entries
+    'and messages whose first byte is not DF. 373 structural slots are
+    'excluded using the already verified index diagnostics.
+    Public Shared Function ScanKnownTables(name As String, data As Byte(),
+                                           tables As IReadOnlyList(Of SaturnTableSpec),
+                                           Optional excludeStructural As Boolean = True) As List(Of DialogueEntry)
+        Dim result As New List(Of DialogueEntry)
+        If data Is Nothing OrElse tables Is Nothing Then Return result
+        For Each spec In tables
+            Dim tableStart As Long = CLng(spec.Bank) + CLng(spec.Table)
+            For message As Integer = 0 To spec.Slots - 1
+                If excludeStructural AndAlso KnownSaturnDialogueLayout.IsRejected(
+                    name, spec.Bank, spec.Group, message) Then Continue For
+                Dim ptrPos As Long = tableStart + CLng(message) * 4L
+                If ptrPos < 0 OrElse ptrPos + 4L > data.Length Then Continue For
+                Dim relative = RelPtr(data, CInt(ptrPos))
+                If relative < 0 Then Continue For
+                Dim textStart As Long = CLng(spec.Bank) + CLng(relative)
+                If textStart < spec.Bank OrElse textStart >= ptrPos OrElse
+                    textStart >= spec.BankEnd Then Continue For
+                Dim endAt = MessageEnd(data, CInt(textStart))
+                If endAt < 0 OrElse endAt >= spec.BankEnd OrElse
+                    endAt >= tableStart Then Continue For
+                Dim messageBytes(endAt - CInt(textStart)) As Byte
+                Buffer.BlockCopy(data, CInt(textStart), messageBytes, 0, messageBytes.Length)
+                Dim nativeHex = Convert.ToHexString(messageBytes)
+                result.Add(New DialogueEntry With {
+                    .FileName = name, .BankOffset = spec.Bank,
+                    .GroupIndex = spec.Group, .MessageIndex = message,
+                    .PointerOffset = ptrPos, .TextOffset = textStart,
+                    .Key = $"{name}:{spec.Bank:X8}:{spec.Group:X2}:{message:X2}",
+                    .EncodedHex = nativeHex,
+                    .Japanese = SaturnJapaneseDecoder.Decode(nativeHex),
+                    .Provenance = "Verified Beta v1.24 native bank and pointer table"})
+            Next
+        Next
+        Return result
+    End Function
+
     Public Shared Function ScanBytes(name As String, data As Byte()) As List(Of DialogueEntry)
         Dim result As New List(Of DialogueEntry)
         If data Is Nothing OrElse data.Length < 256 Then Return result
+        Dim exactTables = KnownSaturnDialogueLayout.ForFile(name, data)
+        If exactTables.Count > 0 Then Return ScanKnownTables(name, data, exactTables)
         Dim byModulo(2047) As List(Of Integer)
         For j = 0 To 2047
             byModulo(j) = New List(Of Integer)()
