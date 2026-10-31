@@ -47,7 +47,7 @@ Public Class MainForm
     Private fileCount As Integer
 
     Public Sub New()
-        Text = "Genso Suikoden • Saturn Dialogue Studio | VB2022 v0.2.0"
+        Text = "Genso Suikoden • Saturn Dialogue Studio | VB2022 v0.2.1"
         StartPosition = FormStartPosition.CenterScreen
         Size = New Size(1510, 915)
         MinimumSize = New Size(1080, 720)
@@ -151,7 +151,7 @@ Public Class MainForm
         editor.RowStyles.Add(New RowStyle(SizeType.Percent, 20))
         editor.RowStyles.Add(New RowStyle(SizeType.Absolute, 26))
         editor.RowStyles.Add(New RowStyle(SizeType.Percent, 20))
-        editor.Controls.Add(FieldLabel("ORIGINAL JAPANESE  /  READ ONLY"), 0, 0)
+        editor.Controls.Add(FieldLabel("DECODED ORIGINAL JAPANESE  /  READ ONLY"), 0, 0)
         ConfigureEditor(originalText, True, False) : editor.Controls.Add(originalText, 0, 1)
         editor.Controls.Add(FieldLabel("MANUAL ENGLISH TRANSLATION"), 0, 2)
         ConfigureEditor(englishText, False, False) : editor.Controls.Add(englishText, 0, 3)
@@ -432,7 +432,8 @@ Public Class MainForm
             MessageBox.Show(Me, "Select a dialogue first.", "Encoding") : Return
         End If
         Try
-            Dim newBytes = DialogueEncoding.EncodeEnglish(chosen.English, glyphMap)
+            Dim startsWithQuote = DialogueEncoding.HexToBytes(chosen.EncodedHex)(0) = &HDF
+            Dim newBytes = DialogueEncoding.EncodeEnglish(chosen.English, glyphMap, startsWithQuote)
             DialogueEncoding.ValidatePatch(DialogueEncoding.HexToBytes(chosen.EncodedHex), newBytes, chosen.Key)
             chosen.ReplacementHex = DialogueEncoding.ToHex(newBytes)
             replacementHex.Text = chosen.ReplacementHex
