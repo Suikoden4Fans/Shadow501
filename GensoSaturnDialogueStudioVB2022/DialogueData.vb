@@ -120,9 +120,15 @@ Public NotInheritable Class NativeDialogueScanner
     Private Shared Function MessageEnd(data As Byte(), target As Integer) As Integer
         If target < 0 OrElse target >= data.Length OrElse data(target) <> &HDF Then Return -1
         Dim limit = Math.Min(data.Length - 1, target + 2047)
-        For i = target + 1 To limit
+        Dim i = target + 1
+        While i <= limit
             If data(i) = &HF Then Return i
-        Next
+            'Glyphs and controls 01..0C have a second byte, which
+            'may itself equal 0F. Do not mistake such a byte for
+            'the end of the actual message.
+            If data(i) >= 1 AndAlso data(i) <= 12 Then i += 1
+            i += 1
+        End While
         Return -1
     End Function
     Private Shared Function Hit(data As Byte(), pointerAt As Integer, bankBase As Integer) As Integer
@@ -130,9 +136,35 @@ Public NotInheritable Class NativeDialogueScanner
         If relative < 0 Then Return -1
         Dim target = CLng(bankBase) + CLng(relative)
         If target < 0 OrElse target >= data.Length Then Return -1
+        'Verified Saturn message pointer tables follow their text banks.
+        'Reject forward references: these caused repeated false rows
+        '(e.g. 0x81828 at small pointer table offsets).
+        If target >= pointerAt Then Return -1
         If MessageEnd(data, CInt(target)) < 0 Then Return -1
         Return CInt(target)
     End Function
+    Private Shared Function LooksLikeMessageTable(data As Byte(), at As Integer, bank As Integer,
+                                                   count As Integer) As Boolean
+        If count < 3 Then Return False
+        Dim unique As New HashSet(Of Integer)
+        Dim earlier As Integer = -1
+        Dim decreases As Integer = 0
+        For i As Integer = 0 To count - 1
+            Dim target = Hit(data, at + i * 4, bank)
+            If target < 0 Then Return False
+            unique.Add(target)
+            If earlier > target Then decreases += 1
+            earlier = target
+        Next
+        'An actual message catalogue contains many distinct message
+        'starts. Repeated aliases do not form a dialogue table.
+        If unique.Count < 3 Then Return False
+        If unique.Count * 2 < count Then Return False
+        'Native text tables are predominantly in text offset order.
+        If decreases > Math.Max(2, count \ 8) Then Return False
+        Return True
+    End Function
+
     Private Shared Function RunLength(data As Byte(), at As Integer, bank As Integer) As Integer
         Dim count = 0
         While at + count * 4L + 4L <= data.Length AndAlso count < 4096
@@ -176,7 +208,7 @@ Public NotInheritable Class NativeDialogueScanner
                 End If
                 If bestLen >= 200 Then Exit For
             Next
-            If bestLen < 3 Then
+            If bestLen < 3 OrElse Not LooksLikeMessageTable(data, pos, bestBank, bestLen) Then
                 pos += 4
                 Continue While
             End If
@@ -193,7 +225,9 @@ Public NotInheritable Class NativeDialogueScanner
                     .GroupIndex = groupIndex, .MessageIndex = msg,
                     .PointerOffset = ptr, .TextOffset = textStart,
                     .Key = $"{name}:{bestBank:X8}:{groupIndex:X2}:{msg:X2}",
-                    .EncodedHex = Convert.ToHexString(message)})
+                    .EncodedHex = Convert.ToHexString(message),
+                    .Japanese = SaturnJapaneseDecoder.Decode(Convert.ToHexString(message)),
+                    .Provenance = "Native pointer table; decoded Japanese glyphs"})
             Next
             pos += bestLen * 4
         End While
