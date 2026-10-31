@@ -155,7 +155,7 @@ Public Class MainForm
         ConfigureEditor(originalText, True, False) : editor.Controls.Add(originalText, 0, 1)
         editor.Controls.Add(FieldLabel("MANUAL ENGLISH TRANSLATION"), 0, 2)
         ConfigureEditor(englishText, False, False) : editor.Controls.Add(englishText, 0, 3)
-        editor.Controls.Add(FieldLabel("NATIVE SATURN BYTES  /  DF ... 0F"), 0, 4)
+        editor.Controls.Add(FieldLabel("NATIVE SATURN BYTES  /  ... 0F"), 0, 4)
         ConfigureEditor(originalHex, True, True) : editor.Controls.Add(originalHex, 0, 5)
         editor.Controls.Add(FieldLabel("PATCH BYTES  /  SAFE FIXED LENGTH"), 0, 6)
         ConfigureEditor(replacementHex, False, True) : editor.Controls.Add(replacementHex, 0, 7)
