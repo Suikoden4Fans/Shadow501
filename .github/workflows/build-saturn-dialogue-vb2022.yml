@@ -1,0 +1,25 @@
+name: Build VB2022 Saturn Dialogue Studio
+on:
+  push:
+    branches:
+      - genso-saturn-dialogue-vb2022-v0.2.0
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile Visual Basic project
+        run: dotnet build GensoSaturnDialogueStudioVB2022/GensoSaturnDialogueStudio.vbproj --configuration Release
+      - name: Run scanner self-tests
+        run: dotnet run --project GensoSaturnDialogueStudioVB2022/GensoSaturnDialogueStudio.vbproj --configuration Release --no-build -- --self-test
+      - name: Publish portable Windows EXE
+        run: dotnet publish GensoSaturnDialogueStudioVB2022/GensoSaturnDialogueStudio.vbproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: GensoSaturnDialogueStudio_VB2022_v0.2.0_WIN64
+          path: publish/**
