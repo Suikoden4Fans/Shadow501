@@ -126,7 +126,7 @@ Public Class MainForm
         grid.AutoGenerateColumns = False
         grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect
         grid.Columns.Add(MakeColumn("RESOURCE", "FileName", 137))
-        grid.Columns.Add(MakeColumn("POINTER", "PointerOffset", 84))
+        grid.Columns.Add(MakeColumn("POINTER", "PointerText", 100))
         grid.Columns.Add(MakeColumn("TEXT OFFSET", "OffsetText", 100))
         grid.Columns.Add(MakeColumn("JAPANESE / SOURCE", "Japanese", 250))
         grid.Columns.Add(MakeColumn("ENGLISH", "English", 290))
