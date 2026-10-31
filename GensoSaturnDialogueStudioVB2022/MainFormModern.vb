@@ -509,6 +509,152 @@ Public Class MainForm
         End Try
     End Sub
 
+    Private Sub OpenCsvStandalone(sender As Object, e As EventArgs)
+        If Not ConfirmDiscard() Then Return
+        Using dlg As New OpenFileDialog With {
+            .Filter = "Dialogue CSV|*.csv", .Title = "Open Saturn dialogue CSV without a disc image"}
+            If dlg.ShowDialog(Me) <> DialogResult.OK Then Return
+            Try
+                Dim inputRows = CsvStore.LoadFile(dlg.FileName)
+                If inputRows.Count = 0 Then Throw New InvalidDataException("No valid rows with Saturn native text bytes.")
+                messages = inputRows
+                fileCount = messages.Select(Function(x) x.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                currentSource = ""
+                currentFolder = False
+                lastProjectCsv = dlg.FileName
+                modified = False
+                RefreshGrid()
+                RefreshMetrics()
+                status.Text = $"Loaded {messages.Count:N0} rows from CSV. Ready to translate; disc rebuilding requires reopening and verifying the original ISO."
+            Catch ex As Exception
+                MessageBox.Show(Me, ex.Message, "Could not open dialogue CSV", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            End Try
+        End Using
+    End Sub
+
+    Private Sub StopTranslation(sender As Object, e As EventArgs)
+        If translating IsNot Nothing Then
+            translating.Cancel()
+            status.Text = "Translation stop requested. Saving current draft checkpoint..."
+        End If
+    End Sub
+
+    Private Async Sub TranslateAll(sender As Object, e As EventArgs)
+        If translating IsNot Nothing Then Return
+        If messages.Count = 0 Then
+            MessageBox.Show(Me, "Open your dialogue CSV or scan the Saturn game before translating.", "No dialogues")
+            Return
+        End If
+        Using setup As New AutoTranslateDialog()
+            If setup.ShowDialog(Me) <> DialogResult.OK Then Return
+            Using outputDlg As New SaveFileDialog With {
+                .Filter = "Translation CSV|*.csv", .FileName = "Suikoden_Saturn_All_Dialogues_EN_Drafts.csv",
+                .Title = "Choose a separate translated CSV; original is preserved", .OverwritePrompt = True}
+                If outputDlg.ShowDialog(Me) <> DialogResult.OK Then Return
+                Dim destination = outputDlg.FileName
+                If lastProjectCsv.Length > 0 AndAlso
+                   Path.GetFullPath(destination).Equals(Path.GetFullPath(lastProjectCsv), StringComparison.OrdinalIgnoreCase) Then
+                    MessageBox.Show(Me, "Choose a NEW CSV output name so the source dialogue file stays unchanged.", "Source backup required")
+                    Return
+                End If
+
+                Dim settings = setup.Configuration
+                Dim ready As New Dictionary(Of String, String)(StringComparer.Ordinal)
+                For Each record In messages
+                    If record.Japanese.Length > 0 AndAlso record.English.Trim().Length > 0 AndAlso
+                       Not ready.ContainsKey(record.Japanese) Then
+                        ready.Add(record.Japanese, record.English)
+                    End If
+                Next
+                Dim reused As Integer = 0
+                For Each record In messages
+                    Dim cached As String = Nothing
+                    If record.Japanese.Length > 0 AndAlso record.English.Trim().Length = 0 AndAlso
+                       ready.TryGetValue(record.Japanese, cached) Then
+                        record.English = cached
+                        Dim checked = TranslationRules.CheckDraft(record.Japanese, record.EncodedHex, cached)
+                        record.TranslationFit = checked.Status
+                        record.TranslationNote = checked.Note
+                        record.TranslationSource = "Reused previous English draft"
+                        reused += 1
+                    End If
+                Next
+
+                Dim groups = messages.Where(Function(x) x.Japanese.Length > 0 AndAlso
+                     x.English.Trim().Length = 0).GroupBy(Function(x) x.Japanese, StringComparer.Ordinal).
+                     Select(Function(g) g.ToList()).ToList()
+                If File.Exists(destination) Then
+                    Dim backup = destination & ".backup_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture)
+                    File.Copy(destination, backup, False)
+                End If
+                translating = New CancellationTokenSource()
+                Dim completed = 0
+                Dim filled = reused
+                Dim saved = False
+                Dim resultNote = ""
+                SetBusy(True, "Preparing output translation checkpoint...")
+                englishText.ReadOnly = True
+                Try
+                    CsvStore.SaveCheckpoint(destination, messages)
+                    saved = True
+                    Using translator As New SaturnAutoTranslator(settings)
+                        For Each group In groups
+                            translating.Token.ThrowIfCancellationRequested()
+                            Dim smallest = group.OrderBy(Function(x) TranslationRules.PayloadBudget(x.EncodedHex)).First()
+                            Dim result = Await translator.TranslateToCapacityAsync(
+                                smallest.Japanese, smallest.EncodedHex, translating.Token)
+                            For Each record In group
+                                Dim check = TranslationRules.CheckDraft(record.Japanese, record.EncodedHex, result.Text)
+                                record.English = check.Text
+                                record.TranslationFit = check.Status
+                                record.TranslationNote = check.Note
+                                record.TranslationSource = settings.Backend & " (machine draft)"
+                                filled += 1
+                            Next
+                            completed += 1
+                            If completed Mod 25 = 0 Then
+                                CsvStore.SaveCheckpoint(destination, messages)
+                                status.Text = $"Translated {completed:N0}/{groups.Count:N0} unique remaining dialogues. {filled:N0} rows filled, output auto-saved. Ctrl/Stop available."
+                                binding.ResetBindings(False)
+                                RefreshMetrics()
+                                Await Task.Yield()
+                            End If
+                        Next
+                    End Using
+                    resultNote = $"Completed draft generation for {completed:N0} distinct sources, {filled:N0} filled records. Review the OVER LIMIT and REVIEW groups."
+                Catch ex As OperationCanceledException
+                    resultNote = $"Stopped safely after {completed:N0} sources. {filled:N0} records filled. Reopen the CSV and use TRANSLATE ALL to resume."
+                Catch ex As Exception
+                    resultNote = $"Stopped on translation provider error after {completed:N0} sources: {ex.Message}. Existing work is retained."
+                Finally
+                    Try
+                        CsvStore.SaveCheckpoint(destination, messages)
+                        saved = True
+                    Catch saveError As Exception
+                        saved = False
+                        resultNote &= " WARNING: checkpoint save failed: " & saveError.Message
+                    End Try
+                    If translating IsNot Nothing Then translating.Dispose()
+                    translating = Nothing
+                    englishText.ReadOnly = False
+                    SetBusy(False, resultNote)
+                    If saved Then
+                        lastProjectCsv = destination
+                        modified = False
+                    Else
+                        modified = True
+                    End If
+                    RefreshGrid()
+                    RefreshMetrics()
+                    MessageBox.Show(Me, resultNote & Environment.NewLine & Environment.NewLine &
+                        "CSV output: " & destination & Environment.NewLine &
+                        "Generated English is a draft, NOT verified Saturn-encoded text. Do not rebuild until controls and real font bytes are verified.",
+                        "Translation run", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                End Try
+            End Using
+        End Using
+    End Sub
+
     Private Async Sub BuildCopy(sender As Object, e As EventArgs)
         If currentSource.Length = 0 OrElse messages.Count = 0 Then
             MessageBox.Show(Me, "Scan a Saturn image first.", "Rebuild") : Return
@@ -544,6 +690,12 @@ Public Class MainForm
     End Sub
 
     Private Sub CloseRequested(sender As Object, e As FormClosingEventArgs)
+        If translating IsNot Nothing Then
+            translating.Cancel()
+            e.Cancel = True
+            MessageBox.Show(Me, "Translation stop requested. The CSV checkpoint will be saved before closing.", "Saving work")
+            Return
+        End If
         If modified AndAlso Not ConfirmDiscard() Then e.Cancel = True
     End Sub
 End Class
