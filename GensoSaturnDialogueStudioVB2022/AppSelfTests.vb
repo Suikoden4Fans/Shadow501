@@ -17,6 +17,7 @@ Public NotInheritable Class AppSelfTests
         Directory.CreateDirectory(folder)
         Try
             TestCsvAndEncoding(folder)
+            TestKnownNativeMessages()
             TestDisc(folder, False)
             TestDisc(folder, True)
             TestFolderPatch(folder)
@@ -174,4 +175,41 @@ Public NotInheritable Class AppSelfTests
         Dim bytes = DialogueEncoding.EncodeEnglish("A[04 09][0E]!", mapping)
         Check(Convert.ToHexString(bytes) = "DF4104090E210F", "binary control token ordering")
     End Sub
+
+    Private Shared Sub TestKnownNativeMessages()
+        Check(KnownSaturnDialogueLayout.ExpectedRecordCount() = 10882,
+              "verified beta index should contain exactly 10,882 message slots")
+
+        Dim expected = "「そんなに心[01 7F]するなグレミオ。」"
+        Dim sampleHex = "DF546D5A5B011B017F52705AC5C1B59AE5E00F"
+        Check(SaturnJapaneseDecoder.Decode(sampleHex) = expected,
+              "real Gremio Japanese text must decode directly from native bytes")
+        Check(SaturnJapaneseDecoder.Decode("9BC4734B4B455847700F") = "カギがかかっている",
+              "messages that do not begin with DF must decode")
+
+        Dim content(8191) As Byte
+        Dim nativeTexts = {"DF546D5A5B011B017F52705AC5C1B59AE5E00F",
+                           "9BC4734B4B455847700F",
+                           "0400DF7D7145E7E00F"}
+        Dim nativeOffsets = {64, 128, 160}
+        For k = 0 To nativeTexts.Length - 1
+            Dim bytes = Convert.FromHexString(nativeTexts(k))
+            Buffer.BlockCopy(bytes, 0, content, nativeOffsets(k), bytes.Length)
+            Dim slot = &H500 + k * 4
+            content(slot) = 0
+            content(slot + 1) = &H20
+            content(slot + 2) = CByte((nativeOffsets(k) >> 8) And &HFF)
+            content(slot + 3) = CByte(nativeOffsets(k) And &HFF)
+        Next
+        Dim spec As New SaturnTableSpec With {
+            .FileName = "MURA_A1.BIN", .Bank = 0, .BankEnd = content.Length,
+            .Group = 0, .Table = &H500, .Slots = 3}
+        Dim known = NativeDialogueScanner.ScanKnownTables("MURA_A1.BIN", content, {spec}, False)
+        Check(known.Count = 3, "trusted table should contain all three records, including no-DF text")
+        Check(known(0).Japanese = expected, "Japanese in list/editor directly after scanning")
+        Check(known(1).Japanese = "カギがかかっている", "native katakana text is visible")
+        Check(known(2).Japanese = "[04 00]「だれっ！」", "prefix controls are not treated as glyphs")
+        Console.WriteLine("PASS: direct Japanese decoding, 10882 index layout, non-DF and control-prefixed text")
+    End Sub
+
 End Class
