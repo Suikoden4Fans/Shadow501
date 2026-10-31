@@ -315,6 +315,7 @@ Public Class MainForm
                 Try
                     Dim imported = Await Task.Run(Function() LegacyIndex.ApplyFromFile(lookupIndex, messages))
                     lastIndex = lookupIndex
+                    If imported > 0 Then modified = True
                     status.Text = outcome.Summary & $"  |  {imported:N0} JP index matches."
                 Catch ex As Exception
                     MessageBox.Show(Me, "Disc scan succeeded but optional JP index failed: " & ex.Message, "Optional index", MessageBoxButtons.OK, MessageBoxIcon.Warning)
