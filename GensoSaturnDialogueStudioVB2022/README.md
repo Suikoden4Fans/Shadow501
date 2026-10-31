@@ -1,38 +1,51 @@
-# Genso Suikoden Saturn Dialogue Studio — VB2022 v0.2.1
+# Genso Suikoden Saturn Dialogue Studio — VB2022 v0.2.2
 
-**Native Visual Basic .NET 8 Windows Forms application, built for Visual Studio 2022. No Python runtime.**
+**100% native VB.NET 8 WinForms.** No Python runtime. Windows 64-bit executable and full Visual Studio 2022 source.
 
-## What is fixed in v0.2.1
+## Translate all Japanese dialogues to English
 
-- **Real Japanese text immediately after opening ISO/BIN/CUE.** The program now uses an embedded, independently validated native Saturn Japanese glyph lookup, rather than leaving the JP column blank. Unrecognized glyph/control bytes are shown explicitly in `[HH]` or `[HH HH]` form instead of inventing a character.
-- **Verified message index for the original English Beta v1.24 game.** The built-in index covers 84 source banks, 281 verified message-pointer tables and **10,882 actual catalogue records** across 12 dialogue-bearing `MURA_*1.BIN` files. 373 known non-dialogue pointer slots are excluded. Native file SHA-256 checks prevent applying those static offsets to a different game revision.
-- **No false repeated pointers** such as the screenshot where pointer offsets 15084 onward misleadingly shared text offset `00081828`. When source hashes differ, the fallback scanner rejects forward pointers and implausibly repetitive/unsorted groups.
-- **Not every valid line starts with DF.** The verified scanner now supports unquoted text, control-prefixed text, and ordinary message bodies ending in `0F`.
-- **Pointer offsets displayed in hexadecimal** and the full Japanese text shown in the right-hand editor pane.
+1. Open the application and choose **OPEN DIALOGUE CSV**. Select your `Suikoden_Saturn_All_Dialogues_Manual.csv`. It can load the CSV directly: an ISO is not required for translating drafts.
+2. Optional but recommended: choose **IMPORT PRIOR JP/EN** and select your previous `Suikoden_Saturn_Translation_Batch001_Imported.json`. Matching previous English drafts are imported **without replacing existing manual English edits**. Only verified native file/pointer/text/byte matches are imported.
+3. Install <https://ollama.com/download/windows>, then run this command in PowerShell or Command Prompt to download a local multilingual model:
 
-The *optional* **LOAD JP INDEX** button can still import your older recovered Japanese/English catalogue (useful for earlier draft translations), but **it is no longer required to see Japanese text** in the target English Beta v1.24 game.
+   `ollama pull qwen2.5:7b`
 
-## Open and use
+4. Press **TRANSLATE ALL**, select **Local Ollama**, use model `qwen2.5:7b`, and choose a **new output CSV filename**. The translations run on your own PC, and no API key is required.
+5. The editor translates each **distinct unfilled Japanese message only once**, applies that draft to duplicates, and saves a separate output CSV checkpoint after every 25 distinct translations.
+6. **STOP TRANSLATION** cancels the current batch safely. Reopen the saved output CSV and press **TRANSLATE ALL** to resume only missing entries.
+7. Select **Over game limit** or **Needs review** from the filter to find translations that could not safely be fitted. Correct them manually and export another CSV.
 
-1. Download the compiled Windows 64-bit package from the successful build of this version or open `GensoSaturnDialogueStudio.vbproj` in Visual Studio 2022.
-2. Choose **OPEN ISO / BIN / CUE** and select the English Beta v1.24 image.
-3. Scan discovers all 36 MURA resources; the verified indexed text is read from the 12 dialogue-bearing files, with records in Japanese and original byte offsets.
-4. Search and select a line. Edit the **MANUAL ENGLISH TRANSLATION** box. Use **EXPORT CSV** to save your progress. Import previously translated CSV later.
-5. **Rebuild game copy** requires encoded translation bytes. Load a verified Saturn English character mapping CSV and select **ENCODE ENGLISH**, or supply complete `...0F` replacement bytes manually. The program rejects patches longer than the original byte allocation and refuses to touch the source image.
+An alternative provider **MyMemory (free online)** is available without a model download. Unlike Ollama, MyMemory sends your selected Japanese text to an online third-party translation service. A confirmation appears before starting. Their official usage limit is approximately **5,000 characters per day anonymously**, or **50,000 characters/day with a valid contact email**. It cannot translate the entire game in one day at those limits. If the quota stops, your completed entries remain in the saved CSV.
 
-## Honest limits
+## What “same game limit” means
 
-- The program can display original Japanese text using its embedded decoder. Some unusual Kanji/glyph bytes remain explicitly tagged because no verified Unicode mapping was available.
-- Native English font encoding is not automatically solved; typing English alone saves a CSV draft, not playable in-game text.
-- Only fixed-size or shorter safe binary replacements are written. Pointer relocation, text bank expansion and truly arbitrary longer English script insertion remain unsupported.
-- Disc rebuilding supports ISO 2048 and Mode1/2352 images (including 2448 subchannel container with Mode1 user data). Copies leave the original image and audio tracks unchanged. Changed sectors receive regenerated Mode1 EDC/ECC.
-- The new 10,882-entry trusted layout is revision-specific and loaded only if the game resource hash matches. An unknown game revision can produce fewer results with the safe fallback scanner.
-- **Tests:** Windows .NET compilation, Japanese byte decoding, 10,882 indexed-slot accounting, standalone ISO/Mode1 BIN/CUE synthetic fixtures, and fixed-size rebuild/reopen are tested through the GitHub Actions workflow. Emulator testing on the actual commercial disc remains unverified.
+Each native Japanese message has a fixed byte allocation. The translation workflow:
 
-## Source
+- Preserves the original Japanese, message ID, native hex and pointer offsets.
+- Keeps original bracket control tokens in their original order, including `[0D]`, `[0E]`, `[04 09]`, and `[05 00]`.
+- Tries to produce compact English and can ask the local model to shorten over-limit lines twice.
+- Calculates a **conservative but provisional byte-length estimate**, flagging `OVER LIMIT` and `REVIEW`; **no translation is silently truncated**.
+- Saves `FitStatus`, `ReviewNote`, and `TranslationSource` in CSV columns.
+- Does **NOT** automatically place draft text in `ReplacementHex`. Game insertion must be done only after you load a **verified Saturn English glyph table** and confirm exact encoded widths and control bytes.
 
-`MainFormModern.vb`, `SaturnDisc.vb`, `DialogueData.vb`, `SaturnJapaneseDecoder.vb`, `KnownSaturnDialogueLayout.vb`, `CdRomEccEdc.vb`, `ResourceFolderPatcher.vb`, `AppSelfTests.vb`, `Program.vb`, and the Visual Studio `.vbproj`. Legacy `MainForm.vb` is retained as history, but excluded from compilation.
+The draft check is **not a guarantee of in-game compatibility**: English text rendering depends on the actual Saturn font encoding, glyph widths, newlines and placement. The game may need rewrapping or text relocation to accommodate a natural translation.
 
-**Backup:** v0.2.0, v0.1.2, v0.1.1, and v0.1.0 remain on their separate source branches.
+## Actual file coverage
 
-v0.2.1, 2026-10-31.
+The supplied CSV contains **11,090 Japanese records**, compared with **10,882 previously verified entries** from the indexed English Beta v1.24. There are 208 additional entries (119 in MURA_A1.BIN and 89 in MURA_Z1.BIN) whose game ownership needs validation. All rows can be used for translation drafts, but do not rebuild those unverified entries into a game image automatically.
+
+## Backups and safety
+
+- The input ISO/BIN/CUE and original CSV are **never overwritten** by automatic translation.
+- A new output CSV is created, with frequent atomic-style checkpoints.
+- Existing output CSV files receive a timestamped `.backup_...` before being overwritten.
+- Native BIN/CUE rebuild remains separate, with original-byte verification and no expansion or pointer relocation. **Auto-generated English text alone is never automatically patched into the game.**
+- All earlier source branches v0.2.1 / v0.2.0 / v0.1.2 / v0.1.1 / v0.1.0 remain preserved.
+
+## Tested
+
+Windows CI builds the VB.NET WinForms project and runs synthetic tests for Japanese decoding, control tags, byte estimates, CSV saving/reloading/backups, and ISO/MODE1 BIN/CUE rebuild/reopen. It does not call a live language model or emulator, so translation naturalness and real-game insertion are **not certified**.
+
+Source modules: `MainFormModern.vb`, `AutoTranslateDialog.vb`, `TranslationEngine.vb`, `DialogueData.vb`, `SaturnDisc.vb`, `KnownSaturnDialogueLayout.vb`, `SaturnJapaneseDecoder.vb`, `AppSelfTests.vb`, `CdRomEccEdc.vb`, and `ResourceFolderPatcher.vb`.
+
+**v0.2.2 — 2026-10-31**
