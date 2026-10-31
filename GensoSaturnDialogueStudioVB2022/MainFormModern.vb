@@ -82,7 +82,7 @@ Public Class MainForm
         summary.TextAlign = ContentAlignment.MiddleLeft
         metrics.Controls.Add(summary)
 
-        Dim split As New SplitContainer With {.Dock = DockStyle.Fill, .BackColor = canvasColor, .SplitterWidth = 7, .SplitterDistance = 950, .Panel1MinSize = 500, .Panel2MinSize = 360}
+        Dim split As New SplitContainer With {.Dock = DockStyle.Fill, .BackColor = canvasColor, .SplitterWidth = 7}
         split.Panel1.BackColor = canvasColor
         split.Panel2.BackColor = cardColor
 
@@ -169,6 +169,12 @@ Public Class MainForm
         strip.Items.Add(status) : strip.Items.Add(progressBar)
         Controls.Add(split) : Controls.Add(strip) : Controls.Add(metrics) : Controls.Add(toolbar) : Controls.Add(header)
 
+        AddHandler Me.Shown, Sub()
+                                 split.Panel1MinSize = 400
+                                 split.Panel2MinSize = 300
+                                 Dim desired = CInt(split.ClientSize.Width * 0.67)
+                                 split.SplitterDistance = Math.Max(400, Math.Min(desired, split.ClientSize.Width - 307))
+                             End Sub
         AddHandler grid.SelectionChanged, AddressOf GridSelection
         AddHandler search.TextChanged, Sub() RefreshGrid()
         AddHandler viewMode.SelectedIndexChanged, Sub() RefreshGrid()
