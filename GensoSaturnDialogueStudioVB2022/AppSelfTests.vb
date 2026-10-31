@@ -17,6 +17,7 @@ Public NotInheritable Class AppSelfTests
         Directory.CreateDirectory(folder)
         Try
             TestCsvAndEncoding(folder)
+            TestTranslationDraftAndCsv(folder)
             TestKnownNativeMessages()
             TestFalsePointerAliases()
             TestDisc(folder, False)
@@ -238,6 +239,44 @@ Public NotInheritable Class AppSelfTests
         Check(heuristic.Count = 0,
               "forward and repeatedly aliased pointers must not invent dialogue rows")
         Console.WriteLine("PASS: reported elevator text and false repeated/forward pointer aliases")
+    End Sub
+
+
+    Private Shared Sub TestTranslationDraftAndCsv(folder As String)
+        Dim japanese = "「おかえり。[0E]グレミオ。」"
+        Dim gameHex = "DF4AE4DF4AE50E4A4AE0" & "0F"
+        Check(TranslationRules.PayloadBudget(gameHex) = 8,
+              "original payload budget keeps source DF/E0/0F framing")
+        Check(TranslationRules.SameControls(japanese, "Welcome.[0E]Gremio."),
+              "native 0E control preserved")
+        Check(Not TranslationRules.SameControls(japanese, "Welcome. Gremio."),
+              "missing native control must be flagged")
+        Dim shortDraft = TranslationRules.CheckDraft(japanese, gameHex, "Hi[0E]Jo")
+        Check(shortDraft.Status = "EST FIT" AndAlso shortDraft.EstimatedBytes <= shortDraft.NativeCapacity,
+              "compact English marked estimated fit only")
+        Dim over = TranslationRules.CheckDraft(japanese, gameHex, "Welcome home![0E]My friend Gremio.")
+        Check(over.Status = "OVER LIMIT", "over limit must not be silently truncated")
+
+        Dim jpWithGlyph = "[01 41]帝[0E]"
+        Dim prepared = TranslationRules.PrepareJapanese(jpWithGlyph)
+        Check(prepared.Contains("皇") AndAlso prepared.Contains("[0E]"),
+              "known Kanji glyphs decoded; runtime control preserved")
+        Dim csv = Path.Combine(folder, "translation-autosave.csv")
+        Dim entry As New DialogueEntry With {.Key = "test", .FileName = "MURA_A1.BIN",
+            .PointerOffset = 69204, .TextOffset = 66556, .EncodedHex = "DF4142E00F",
+            .Japanese = japanese, .English = "Hi[0E]Jo", .TranslationFit = "EST FIT",
+            .TranslationNote = "Conservative estimate", .TranslationSource = "Local Ollama (machine draft)"}
+        CsvStore.SaveCheckpoint(csv, {entry})
+        Dim loaded = CsvStore.LoadFile(csv)
+        Check(loaded.Count = 1, "one CSV row reloaded")
+        Check(loaded(0).English = entry.English AndAlso loaded(0).TranslationFit = entry.TranslationFit,
+              "translation, flags and metadata survive checkpoint")
+        Dim textBefore = File.ReadAllText(csv)
+        CsvStore.Save(csv, loaded)
+        Check(File.ReadAllText(csv) = textBefore, "manual export does not corrupt draft CSV")
+        Check(Directory.GetFiles(folder, "translation-autosave.csv.backup_*").Length = 1,
+              "manual CSV overwrite retains versioned backup")
+        Console.WriteLine("PASS: translation control codes, byte-limit estimates, CSV checkpoint/reimport and backup")
     End Sub
 
 End Class
