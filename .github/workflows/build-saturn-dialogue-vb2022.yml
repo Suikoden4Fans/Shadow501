@@ -2,7 +2,7 @@ name: Build VB2022 Saturn Dialogue Studio
 on:
   push:
     branches:
-      - genso-saturn-dialogue-vb2022-v0.2.0
+      - genso-saturn-dialogue-vb2022-v0.2.1
   workflow_dispatch:
 jobs:
   build:
@@ -21,5 +21,5 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: GensoSaturnDialogueStudio_VB2022_v0.2.0_WIN64
+          name: GensoSaturnDialogueStudio_VB2022_v0.2.1_WIN64
           path: publish/**
