@@ -24,6 +24,11 @@ Public Class DialogueEntry
     Public Property ReplacementHex As String = ""
     Public Property OriginalSha As String = ""
     Public Property Provenance As String = "Native pointer scan"
+    Public ReadOnly Property PointerText As String
+        Get
+            Return PointerOffset.ToString("X8", CultureInfo.InvariantCulture)
+        End Get
+    End Property
     Public ReadOnly Property OffsetText As String
         Get
             Return TextOffset.ToString("X8", CultureInfo.InvariantCulture)
