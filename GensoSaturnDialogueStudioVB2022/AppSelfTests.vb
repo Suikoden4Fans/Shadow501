@@ -71,7 +71,7 @@ Public NotInheritable Class AppSelfTests
 
     Private Shared Function IsoFixture() As Byte()
         Dim iso(28 * 2048 - 1) As Byte
-        Dim pvd As New Byte(2047) {}
+        Dim pvd(2047) As Byte
         pvd(0) = 1
         Encoding.ASCII.GetBytes("CD001").CopyTo(pvd, 1)
         pvd(6) = 1
