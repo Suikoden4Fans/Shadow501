@@ -1,0 +1,82 @@
+name: Build translated Saturn dialogue CSV
+on:
+  push:
+    branches:
+      - suikoden-saturn-manual-english-batch001
+    paths:
+      - ".github/workflows/merge-saturn-translations.yml"
+      - "Translations/**"
+  workflow_dispatch:
+
+jobs:
+  merge:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Merge manual translations and earlier English drafts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sources = @(
+            "Translations/Recovered_English_Drafts_Part01.csv",
+            "Translations/Recovered_English_Drafts_Part02.csv",
+            "Translations/Recovered_English_Drafts_Part03.csv",
+            "Translations/Recovered_English_Drafts_Part04.csv",
+            "Translations/Recovered_English_Drafts_Part05.csv",
+            "Translations/Recovered_English_Drafts_Part06.csv",
+            "Translations/Suikoden_Saturn_EN_Batch001_Opening.csv",
+            "Translations/Suikoden_Saturn_EN_Batch002_Ted_243.csv"
+          )
+          $records = [ordered]@{}
+          $counts = @()
+          foreach ($source in $sources) {
+            if (-not (Test-Path -LiteralPath $source)) {
+              throw "Missing CSV: $source"
+            }
+            $imported = @(Import-Csv -LiteralPath $source -Encoding utf8)
+            $used = 0
+            foreach ($row in $imported) {
+              if ([string]::IsNullOrWhiteSpace($row.English)) { continue }
+              if ([string]::IsNullOrWhiteSpace($row.File) -or
+                  [string]::IsNullOrWhiteSpace($row.TextOffset) -or
+                  [string]::IsNullOrWhiteSpace($row.EncodedHex)) {
+                throw "Unmatchable translation in $source"
+              }
+              $hex = ($row.EncodedHex -replace '\s', '').ToUpperInvariant()
+              $key = "$($row.File.ToUpperInvariant())|$($row.TextOffset)|$hex"
+              $records[$key] = $row
+              $used += 1
+            }
+            $counts += "$source : $used rows"
+          }
+          New-Item -ItemType Directory -Path "publish" -Force | Out-Null
+          $csv = "publish/Suikoden_Saturn_English_Translations_Import_Ready.csv"
+          @($records.Values) |
+            Sort-Object File, @{ Expression = { [long]$_.TextOffset } } |
+            Select-Object Key, File, PointerOffset, TextOffset, EncodedHex, Japanese, English, ReplacementHex, OriginalSha |
+            Export-Csv -LiteralPath $csv -Encoding utf8 -NoTypeInformation
+          $recheck = @(Import-Csv -LiteralPath $csv -Encoding utf8)
+          if ($recheck.Count -ne $records.Count) {
+            throw "Merge changed the record count: $($recheck.Count) vs $($records.Count)"
+          }
+          $report = @(
+            "Genso Suikoden Saturn - English translation drafts",
+            "Merged distinct source locations: $($records.Count)",
+            "Original Japanese, offsets, encoded bytes and BIN are NOT modified.",
+            "ReplacementHex is intentionally blank.",
+            "Import this CSV into your existing 11,090-record project via Import CSV.",
+            "The editor validates source file, text offset, and original hex before import.",
+            "Not a complete translation; untranslated records remain unchanged.",
+            "Previous existing drafts and newly written manual dialogue translations are combined.",
+            "",
+            "Source counts:",
+            $counts
+          )
+          $report | Set-Content -LiteralPath "publish/TRANSLATION_REPORT.txt" -Encoding utf8
+          Write-Host "Merged $($records.Count) unique source locations; verified CSV round trip."
+      - name: Upload CSV and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Genso_Suikoden_Saturn_English_Dialogues_CSV
+          path: publish/*
+          if-no-files-found: error
